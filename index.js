@@ -128,6 +128,13 @@ class Parser {
 
   list() {
     if (this.match(TokenType.LeftBracket)) {
+      if (this.peek().lexeme === 'lambda') {
+        this.advance();
+        const args = this.list();
+        const body = this.list();
+        this.consume(TokenType.RightBracket);
+        return new LambdaExpr(args, body);
+      }
       // if (this.peek().lexeme === 'define') {
       //   return this.define();
       // }
@@ -233,6 +240,12 @@ class LiteralExpr {
   }
 }
 
+class LambdaExpr {
+  constructor(args, body) {
+    this.args = args;
+    this.body = body;
+  }
+}
 class DefineExpr {
   constructor(name, value) {
     this.name = name;
@@ -247,17 +260,36 @@ class FunctionExpr {
   }
 }
 
+class Environment {
+  constructor(enclosing) {
+    this.values = new Map();
+    this.enclosing = enclosing;
+  }
+
+  set(name, value) {
+    this.values.set(name, value);
+  }
+
+  get(name) {
+    if (this.values.has(name)) {
+      return this.values.get(name);
+    }
+    if (this.enclosing) {
+      return this.enclosing.get(name);
+    }
+    throw new Error('Unknown identifier: ' + name);
+  }
+}
+
 class Interpreter {
   constructor() {
-    const env = new Map();
+    const env = new Environment();
     env.set('*', (args) => args.reduce((a, b) => a * b));
     env.set('+', (args) => args.reduce((a, b) => a + b));
     env.set('-', (args) => args.reduce((a, b) => a - b));
     env.set('/', (args) => args.reduce((a, b) => a / b));
-    env.set('define', (args) => {
-      const [name, value] = args;
-      env.set(name.token.lexeme, this.interpret(value));
-    });
+    env.set('or', (args) => args.reduce((a, b) => a || b));
+    env.set('and', (args) => args.reduce((a, b) => a && b));
     this.env = env;
   }
 
@@ -272,15 +304,26 @@ class Interpreter {
   interpret(expr) {
     if (expr instanceof ListExpr) {
       const name = expr.items[0];
-      const fn = this.env.get(name.token.lexeme);
 
       if (name.token.lexeme === 'define') {
-        return fn(expr.items.slice(1));
+        const [name, value] = expr.items.slice(1);
+        return this.env.set(name.token.lexeme, this.interpret(value));
       }
+
+      if (name.token.lexeme === 'lambda') {
+        console.log('parsing lambda ');
+        throw new Error('hello');
+      }
+
+      const fn = this.env.get(name.token.lexeme);
 
       const args = [];
       for (const arg of expr.items.slice(1)) {
         args.push(this.interpret(arg));
+      }
+
+      if (fn instanceof Function) {
+        return fn.call(this, args);
       }
       return fn(args);
     }
@@ -289,6 +332,9 @@ class Interpreter {
     }
     if (expr instanceof SymbolExpr) {
       return this.env.get(expr.token.lexeme);
+    }
+    if (expr instanceof LambdaExpr) {
+      return new Function(expr.args, expr.body);
     }
     // if (expr instanceof DefineExpr) {
     //   this.env.set(expr.name, this.interpret(expr.value));
@@ -304,8 +350,17 @@ class Function {
     this.args = args;
   }
 
-  call(args) {
-    this.declaration(args);
+  call(interpreter, args) {
+    const env = new Environment(interpreter.env);
+    for (let i = 0; i < this.args.items.length; i++) {
+      const arg = this.args.items[i];
+      env.set(arg.token.lexeme, args[i]);
+    }
+    const previous = interpreter.env;
+    interpreter.env = env;
+    const result = interpreter.interpret(this.declaration);
+    interpreter.env = previous;
+    return result;
   }
 }
 
@@ -351,4 +406,9 @@ assert.equal(run(`(* pi (* radius radius))`), 314.159);
 run('(define circumference (* 2 pi radius))');
 assert.equal(run(`circumference`), 62.8318);
 
+// TODO: Skipping this define form
 // run('(define (square x) (* x x))');
+// assert.equal(run(`(square 21)`), '441');
+
+run('(define square (lambda (x) (* x x)))');
+assert.equal(run(`(square 21)`), '441');
