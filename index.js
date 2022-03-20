@@ -7,6 +7,7 @@ const TokenType = {
   Number: 'Number',
   True: 'True',
   False: 'False',
+  String: 'String',
 };
 
 class Token {
@@ -53,6 +54,14 @@ class Scanner {
             this.addToken(TokenType.False);
             break;
           }
+        case '"':
+          while (this.peek() !== '"' && !this.isAtEnd()) {
+            this.advance();
+          }
+          const str = this.source.slice(this.start + 1, this.current);
+          this.addTokenWithLiteral(TokenType.String, str);
+          this.advance();
+          break;
         default:
           if (this.isDigit(char)) {
             while (this.isDigitOrDot(this.peek())) {
@@ -124,10 +133,12 @@ class Parser {
 
   /**
    * Parser grammar:
-   *  program    => ( expression )*
-   *  expression => "(" ( expression )* ")" | function | atom
-   *  function   => "(" "define" SYMBOL expression* ")" | "(" "define" "(" SYMBOL* ")" expression* ")"
-   *  atom       => SYMBOL | NUMBER
+   *  program    => ( list )*
+   *  list       => lambda | define | if | "(" ( list )* ")" | function | atom
+   *  lambda     => "(" "lambda" list list ")"
+   *  define     => "(" "define" IDENTIFIER list ")"
+   *  if         => "(" "if" list list list? ")"
+   *  atom       => SYMBOL | NUMBER | TRUE | FALSE | STRING
    */
   parse() {
     const expressions = [];
@@ -149,7 +160,12 @@ class Parser {
       if (this.peek().lexeme === 'if') {
         return this.if();
       }
-      return this.expression();
+
+      const items = [];
+      while (!this.match(TokenType.RightBracket)) {
+        items.push(this.list());
+      }
+      return new ListExpr(items);
     }
     return this.atom();
   }
@@ -182,14 +198,6 @@ class Parser {
     return new IfExpr(cond, thenBranch, elseBranch);
   }
 
-  expression() {
-    const items = [];
-    while (!this.match(TokenType.RightBracket)) {
-      items.push(this.list());
-    }
-    return new ListExpr(items);
-  }
-
   atom() {
     switch (true) {
       case this.match(TokenType.Symbol):
@@ -200,6 +208,8 @@ class Parser {
         return new LiteralExpr(true);
       case this.match(TokenType.False):
         return new LiteralExpr(false);
+      case this.match(TokenType.String):
+        return new LiteralExpr(this.previous().literal);
       default:
         throw new Error('Unable to parse: ' + this.peek().tokenType);
     }
@@ -308,6 +318,15 @@ class Environment {
 class Interpreter {
   constructor() {
     const env = new Environment();
+    env.set('*', { call: (args) => args.reduce((a, b) => a * b) });
+    env.set('+', { call: (args) => args.reduce((a, b) => a + b) });
+    env.set('-', { call: (args) => args.reduce((a, b) => a - b) });
+    env.set('/', { call: (args) => args.reduce((a, b) => a / b) });
+    env.set('=', { call: (args) => args.reduce((a, b) => a === b) });
+    env.set('<=', { call: (args) => args.reduce((a, b) => a <= b) });
+    env.set('>=', { call: (args) => args.reduce((a, b) => a >= b) });
+    env.set('string-length', { call: (args) => args[0].length });
+    env.set('string-append', { call: (args) => args[0] + args[1] });
     this.env = env;
   }
 
@@ -341,25 +360,8 @@ class Interpreter {
         args.push(this.interpret(arg));
       }
 
-      switch (name.token.lexeme) {
-        case '*':
-          return args.reduce((a, b) => a * b);
-        case '+':
-          return args.reduce((a, b) => a + b);
-        case '/':
-          return args.reduce((a, b) => a / b);
-        case '-':
-          return args.reduce((a, b) => a - b);
-        case '=':
-          return args.reduce((a, b) => a === b);
-        case '<=':
-          return args.reduce((a, b) => a <= b);
-        case '>=':
-          return args.reduce((a, b) => a >= b);
-        default:
-          const func = this.env.get(name.token.lexeme);
-          return func.call(this, args);
-      }
+      const callee = this.interpret(name);
+      return callee.call(args, this);
     }
     if (expr instanceof LiteralExpr) {
       return expr.value;
@@ -390,7 +392,7 @@ class Function {
     this.args = args;
   }
 
-  call(interpreter, args) {
+  call(args, interpreter) {
     const env = new Environment(interpreter.env);
     for (let i = 0; i < this.args.items.length; i++) {
       const arg = this.args.items[i];
@@ -446,10 +448,6 @@ assert.equal(run(`(* pi (* radius radius))`), 314.159);
 run('(define circumference (* 2 pi radius))');
 assert.equal(run(`circumference`), 62.8318);
 
-// TODO: Skipping this define form
-// run('(define (square x) (* x x))');
-// assert.equal(run(`(square 21)`), '441');
-
 run('(define square (lambda (x) (* x x)))');
 assert.equal(run(`(square 21)`), '441');
 
@@ -468,3 +466,8 @@ run(`(define fibonacci
         num
         (+ (fibonacci (- num 1)) (fibonacci (- num 2))))))`);
 assert.equal(run(`(fibonacci 20)`), '6765');
+
+assert.equal(run(`((lambda (x) (* x 2)) 7)`), 14);
+assert.equal(run(`(define str "hello world") str`), 'hello world');
+assert.equal(run(`(string-length str)`), '11');
+assert.equal(run(`(string-append str " here")`), 'hello world here');
