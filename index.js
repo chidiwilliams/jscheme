@@ -327,6 +327,12 @@ class Interpreter {
     env.set('>=', { call: (args) => args.reduce((a, b) => a >= b) });
     env.set('string-length', { call: (args) => args[0].length });
     env.set('string-append', { call: (args) => args[0] + args[1] });
+    env.set('list', { call: (args) => args });
+    env.set('null?', { call: (args) => Array.isArray(args[0]) && args[0].length === 0 });
+    env.set('car', { call: (args) => args[0][0] });
+    env.set('cdr', { call: (args) => args[0].slice(1) });
+    env.set('cons', { call: (args) => [args[0], ...args[1]] });
+    env.set('remainder', { call: (args) => args[0] % args[1] });
     this.env = env;
   }
 
@@ -347,6 +353,9 @@ class Interpreter {
     }
     if (expr === undefined) {
       return '#f';
+    }
+    if (Array.isArray(expr)) {
+      return '(' + expr.join(' ') + ')';
     }
     return expr.toString();
   }
@@ -471,3 +480,25 @@ assert.equal(run(`((lambda (x) (* x 2)) 7)`), 14);
 assert.equal(run(`(define str "hello world") str`), 'hello world');
 assert.equal(run(`(string-length str)`), '11');
 assert.equal(run(`(string-append str " here")`), 'hello world here');
+
+assert.equal(run(`(define one-through-four (list 1 2 3 4)) one-through-four`), '(1 2 3 4)');
+assert.equal(run(`(car one-through-four)`), '1');
+assert.equal(run(`(car (cdr one-through-four))`), '2');
+assert.equal(run(`(null? (cdr (list)))`), '#t');
+run(`(define map
+  (lambda (proc items)
+    (if (null? items)
+        (list)
+        (cons (proc (car items))
+              (map proc (cdr items))))))`);
+assert.equal(run(`(map square (list 1 2 3))`), '(1 4 9)');
+run(`(define odd? (lambda (x) (= 1 (remainder x 2))))`);
+run(`(define filter
+  (lambda (predicate sequence)
+    (if (null? sequence)
+        (list)
+        (if (predicate (car sequence))
+            (cons (car sequence)
+                  (filter predicate (cdr sequence)))
+            (filter predicate (cdr sequence))))))`);
+assert.equal(run(`(filter odd? (list 1 2 3 4 5))`), '(1 3 5)');
