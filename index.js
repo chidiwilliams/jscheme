@@ -4,8 +4,9 @@ const TokenType = {
   LeftBracket: 'LeftBracket',
   RightBracket: 'RightBracket',
   Symbol: 'Symbol',
-  Atom: 'Atom',
   Number: 'Number',
+  True: 'True',
+  False: 'False',
 };
 
 class Token {
@@ -41,6 +42,17 @@ class Scanner {
         case ' ':
         case '\n':
           break;
+        case '#':
+          if (this.peek() === 't') {
+            this.advance();
+            this.addToken(TokenType.True);
+            break;
+          }
+          if (this.peek() === 'f') {
+            this.advance();
+            this.addToken(TokenType.False);
+            break;
+          }
         default:
           if (this.isDigit(char)) {
             while (this.isDigitOrDot(this.peek())) {
@@ -129,40 +141,46 @@ class Parser {
   list() {
     if (this.match(TokenType.LeftBracket)) {
       if (this.peek().lexeme === 'lambda') {
-        this.advance();
-        const args = this.list();
-        const body = this.list();
-        this.consume(TokenType.RightBracket);
-        return new LambdaExpr(args, body);
+        return this.lambda();
       }
-      // if (this.peek().lexeme === 'define') {
-      //   return this.define();
-      // }
-
+      if (this.peek().lexeme === 'define') {
+        return this.define();
+      }
+      if (this.peek().lexeme === 'if') {
+        return this.if();
+      }
       return this.expression();
     }
     return this.atom();
   }
 
-  // define() {
-  //   this.advance(); // define symbol
+  lambda() {
+    this.advance();
+    const args = this.list();
+    const body = this.list();
+    this.consume(TokenType.RightBracket);
+    return new LambdaExpr(args, body);
+  }
 
-  //   if (this.match(TokenType.LeftBracket)) {
-  //     const name = this.consume(TokenType.Symbol);
-  //     const args = [];
-  //     while (!this.match(TokenType.RightBracket)) {
-  //       args.push(this.advance());
-  //     }
-  //     const body = this.list();
-  //     this.consume(TokenType.RightBracket);
-  //     return new DefineExpr(name, new FunctionExpr(args, body));
-  //   }
+  define() {
+    this.advance();
+    const name = this.consume(TokenType.Symbol);
+    const value = this.list();
+    this.consume(TokenType.RightBracket);
+    return new DefineExpr(name, value);
+  }
 
-  //   const name = this.consume(TokenType.Symbol);
-  //   const value = this.list();
-  //   this.consume(TokenType.RightBracket);
-  //   return new DefineExpr(name, value);
-  // }
+  if() {
+    this.advance();
+    const cond = this.list();
+    const thenBranch = this.list();
+    let elseBranch;
+    if (!this.match(TokenType.RightBracket)) {
+      elseBranch = this.list();
+    }
+    this.consume(TokenType.RightBracket);
+    return new IfExpr(cond, thenBranch, elseBranch);
+  }
 
   expression() {
     const items = [];
@@ -178,6 +196,10 @@ class Parser {
         return new SymbolExpr(this.previous());
       case this.match(TokenType.Number):
         return new LiteralExpr(this.previous().literal);
+      case this.match(TokenType.True):
+        return new LiteralExpr(true);
+      case this.match(TokenType.False):
+        return new LiteralExpr(false);
       default:
         throw new Error('Unable to parse: ' + this.peek().tokenType);
     }
@@ -187,11 +209,11 @@ class Parser {
     return this.current >= this.tokens.length;
   }
 
-  consume(tokenType, message) {
+  consume(tokenType) {
     if (this.check(tokenType)) {
       return this.advance();
     }
-    throw new Error(message);
+    throw new Error('Expected ' + tokenType);
   }
 
   advance() {
@@ -246,6 +268,7 @@ class LambdaExpr {
     this.body = body;
   }
 }
+
 class DefineExpr {
   constructor(name, value) {
     this.name = name;
@@ -253,10 +276,11 @@ class DefineExpr {
   }
 }
 
-class FunctionExpr {
-  constructor(args, body) {
-    this.args = args;
-    this.body = body;
+class IfExpr {
+  constructor(condition, thenBranch, elseBranch) {
+    this.condition = condition;
+    this.thenBranch = thenBranch;
+    this.elseBranch = elseBranch;
   }
 }
 
@@ -284,12 +308,6 @@ class Environment {
 class Interpreter {
   constructor() {
     const env = new Environment();
-    env.set('*', (args) => args.reduce((a, b) => a * b));
-    env.set('+', (args) => args.reduce((a, b) => a + b));
-    env.set('-', (args) => args.reduce((a, b) => a - b));
-    env.set('/', (args) => args.reduce((a, b) => a / b));
-    env.set('or', (args) => args.reduce((a, b) => a || b));
-    env.set('and', (args) => args.reduce((a, b) => a && b));
     this.env = env;
   }
 
@@ -298,34 +316,50 @@ class Interpreter {
     for (const expr of expressions) {
       result = this.interpret(expr);
     }
-    return result;
+    return this.stringify(result);
+  }
+
+  stringify(expr) {
+    if (expr === false) {
+      return '#f';
+    }
+    if (expr === true) {
+      return '#t';
+    }
+    if (expr === undefined) {
+      return '#f';
+    }
+    return expr.toString();
   }
 
   interpret(expr) {
     if (expr instanceof ListExpr) {
-      const name = expr.items[0];
-
-      if (name.token.lexeme === 'define') {
-        const [name, value] = expr.items.slice(1);
-        return this.env.set(name.token.lexeme, this.interpret(value));
-      }
-
-      if (name.token.lexeme === 'lambda') {
-        console.log('parsing lambda ');
-        throw new Error('hello');
-      }
-
-      const fn = this.env.get(name.token.lexeme);
+      const [name, ...body] = expr.items;
 
       const args = [];
-      for (const arg of expr.items.slice(1)) {
+      for (const arg of body) {
         args.push(this.interpret(arg));
       }
 
-      if (fn instanceof Function) {
-        return fn.call(this, args);
+      switch (name.token.lexeme) {
+        case '*':
+          return args.reduce((a, b) => a * b);
+        case '+':
+          return args.reduce((a, b) => a + b);
+        case '/':
+          return args.reduce((a, b) => a / b);
+        case '-':
+          return args.reduce((a, b) => a - b);
+        case '=':
+          return args.reduce((a, b) => a === b);
+        case '<=':
+          return args.reduce((a, b) => a <= b);
+        case '>=':
+          return args.reduce((a, b) => a >= b);
+        default:
+          const func = this.env.get(name.token.lexeme);
+          return func.call(this, args);
       }
-      return fn(args);
     }
     if (expr instanceof LiteralExpr) {
       return expr.value;
@@ -336,10 +370,16 @@ class Interpreter {
     if (expr instanceof LambdaExpr) {
       return new Function(expr.args, expr.body);
     }
-    // if (expr instanceof DefineExpr) {
-    //   this.env.set(expr.name, this.interpret(expr.value));
-    //   return;
-    // }
+    if (expr instanceof DefineExpr) {
+      return this.env.set(expr.name.lexeme, this.interpret(expr.value));
+    }
+    if (expr instanceof IfExpr) {
+      const cond = this.interpret(expr.condition);
+      if (cond !== false) {
+        return this.interpret(expr.thenBranch);
+      }
+      return this.interpret(expr.elseBranch);
+    }
     throw new Error('Unknown expression to interpret: ' + expr.constructor.name);
   }
 }
@@ -412,3 +452,19 @@ assert.equal(run(`circumference`), 62.8318);
 
 run('(define square (lambda (x) (* x x)))');
 assert.equal(run(`(square 21)`), '441');
+
+run('(define and (lambda (x y) (if x y #f)))');
+
+run('(define x 3)');
+run('(define y 4)');
+assert.equal(run(`(and (if (= x 3) #t #f) (if (= y 4) #t #f))`), '#t');
+
+run('(define or (lambda (x y) (if x x y)))');
+assert.equal(run(`(or #f #t)`), '#t');
+
+run(`(define fibonacci
+  (lambda (num)
+    (if (<= num 1)
+        num
+        (+ (fibonacci (- num 1)) (fibonacci (- num 2))))))`);
+assert.equal(run(`(fibonacci 20)`), '6765');
