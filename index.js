@@ -314,26 +314,6 @@ class Environment {
 }
 
 class Interpreter {
-  constructor() {
-    const env = new Environment();
-    env.set('*', { call: (args) => args.reduce((a, b) => a * b) });
-    env.set('+', { call: (args) => args.reduce((a, b) => a + b) });
-    env.set('-', { call: (args) => args.reduce((a, b) => a - b) });
-    env.set('/', { call: (args) => args.reduce((a, b) => a / b) });
-    env.set('=', { call: (args) => args.reduce((a, b) => a === b) });
-    env.set('<=', { call: (args) => args.reduce((a, b) => a <= b) });
-    env.set('>=', { call: (args) => args.reduce((a, b) => a >= b) });
-    env.set('string-length', { call: (args) => args[0].length });
-    env.set('string-append', { call: (args) => args[0] + args[1] });
-    env.set('list', { call: (args) => args });
-    env.set('null?', { call: (args) => Array.isArray(args[0]) && args[0].length === 0 });
-    env.set('car', { call: (args) => args[0][0] });
-    env.set('cdr', { call: (args) => args[0].slice(1) });
-    env.set('cons', { call: (args) => [args[0], ...args[1]] });
-    env.set('remainder', { call: (args) => args[0] % args[1] });
-    this.env = env;
-  }
-
   interpretAll(expressions, env) {
     let result;
     for (const expr of expressions) {
@@ -369,7 +349,17 @@ class Interpreter {
         }
 
         const callee = this.interpret(name, env);
-        return callee.call(args, env);
+        if (callee instanceof Procedure) {
+          const fnEnv = new Environment(env);
+          for (let i = 0; i < callee.args.items.length; i++) {
+            const calleeArg = callee.args.items[i];
+            fnEnv.set(calleeArg.token.lexeme, args[i]);
+          }
+          expr = callee.declaration;
+          env = fnEnv;
+          continue;
+        }
+        return callee(args, env);
       }
       if (expr instanceof LiteralExpr) {
         return expr.value;
@@ -378,7 +368,7 @@ class Interpreter {
         return env.get(expr.token.lexeme);
       }
       if (expr instanceof LambdaExpr) {
-        return new Function(expr.args, expr.body);
+        return new Procedure(expr.args, expr.body);
       }
       if (expr instanceof DefineExpr) {
         return env.set(expr.name.lexeme, this.interpret(expr.value, env));
@@ -397,40 +387,35 @@ class Interpreter {
   }
 }
 
-class Function {
+class Procedure {
   constructor(args, declaration) {
     this.declaration = declaration;
     this.args = args;
   }
+}
 
-  call(args, env) {
-    const fnEnv = new Environment(env);
-    for (let i = 0; i < this.args.items.length; i++) {
-      const arg = this.args.items[i];
-      fnEnv.set(arg.token.lexeme, args[i]);
-    }
-    return interpreter.interpret(this.declaration, fnEnv);
-  }
+function getInitialEnvironment() {
+  const env = new Environment();
+  env.set('*', (args) => args.reduce((a, b) => a * b));
+  env.set('+', (args) => args.reduce((a, b) => a + b));
+  env.set('-', (args) => args.reduce((a, b) => a - b));
+  env.set('/', (args) => args.reduce((a, b) => a / b));
+  env.set('=', (args) => args.reduce((a, b) => a === b));
+  env.set('<=', (args) => args.reduce((a, b) => a <= b));
+  env.set('>=', (args) => args.reduce((a, b) => a >= b));
+  env.set('string-length', (args) => args[0].length);
+  env.set('string-append', (args) => args[0] + args[1]);
+  env.set('list', (args) => args);
+  env.set('null?', (args) => Array.isArray(args[0]) && args[0].length === 0);
+  env.set('car', (args) => args[0][0]);
+  env.set('cdr', (args) => args[0].slice(1));
+  env.set('cons', (args) => [args[0], ...args[1]]);
+  env.set('remainder', (args) => args[0] % args[1]);
+  return env;
 }
 
 const interpreter = new Interpreter();
-
-const env = new Environment();
-env.set('*', { call: (args) => args.reduce((a, b) => a * b) });
-env.set('+', { call: (args) => args.reduce((a, b) => a + b) });
-env.set('-', { call: (args) => args.reduce((a, b) => a - b) });
-env.set('/', { call: (args) => args.reduce((a, b) => a / b) });
-env.set('=', { call: (args) => args.reduce((a, b) => a === b) });
-env.set('<=', { call: (args) => args.reduce((a, b) => a <= b) });
-env.set('>=', { call: (args) => args.reduce((a, b) => a >= b) });
-env.set('string-length', { call: (args) => args[0].length });
-env.set('string-append', { call: (args) => args[0] + args[1] });
-env.set('list', { call: (args) => args });
-env.set('null?', { call: (args) => Array.isArray(args[0]) && args[0].length === 0 });
-env.set('car', { call: (args) => args[0][0] });
-env.set('cdr', { call: (args) => args[0].slice(1) });
-env.set('cons', { call: (args) => [args[0], ...args[1]] });
-env.set('remainder', { call: (args) => args[0] % args[1] });
+const env = getInitialEnvironment();
 
 function run(source) {
   const scanner = new Scanner(source);
@@ -519,3 +504,10 @@ run(`(define filter
                   (filter predicate (cdr sequence)))
             (filter predicate (cdr sequence))))))`);
 assert.equal(run(`(filter odd? (list 1 2 3 4 5))`), '(1 3 5)');
+
+run(`(define sum-to
+  (lambda (n acc)
+    (if (= n 0)
+        acc
+        (sum-to (- n 1) (+ n acc)))))`);
+assert.equal(run(`(sum-to 10000 0)`), '50005000'); // TCE!
