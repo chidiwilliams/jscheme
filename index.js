@@ -1,5 +1,3 @@
-const assert = require('assert');
-
 const TokenType = {
   LeftBracket: 'LeftBracket',
   RightBracket: 'RightBracket',
@@ -336,10 +334,10 @@ class Interpreter {
     this.env = env;
   }
 
-  interpretAll(expressions) {
+  interpretAll(expressions, env) {
     let result;
     for (const expr of expressions) {
-      result = this.interpret(expr);
+      result = this.interpret(expr, env);
     }
     return this.stringify(result);
   }
@@ -360,38 +358,42 @@ class Interpreter {
     return expr.toString();
   }
 
-  interpret(expr) {
-    if (expr instanceof ListExpr) {
-      const [name, ...body] = expr.items;
+  interpret(expr, env) {
+    while (true) {
+      if (expr instanceof ListExpr) {
+        const [name, ...body] = expr.items;
 
-      const args = [];
-      for (const arg of body) {
-        args.push(this.interpret(arg));
-      }
+        const args = [];
+        for (const arg of body) {
+          args.push(this.interpret(arg, env));
+        }
 
-      const callee = this.interpret(name);
-      return callee.call(args, this);
-    }
-    if (expr instanceof LiteralExpr) {
-      return expr.value;
-    }
-    if (expr instanceof SymbolExpr) {
-      return this.env.get(expr.token.lexeme);
-    }
-    if (expr instanceof LambdaExpr) {
-      return new Function(expr.args, expr.body);
-    }
-    if (expr instanceof DefineExpr) {
-      return this.env.set(expr.name.lexeme, this.interpret(expr.value));
-    }
-    if (expr instanceof IfExpr) {
-      const cond = this.interpret(expr.condition);
-      if (cond !== false) {
-        return this.interpret(expr.thenBranch);
+        const callee = this.interpret(name, env);
+        return callee.call(args, env);
       }
-      return this.interpret(expr.elseBranch);
+      if (expr instanceof LiteralExpr) {
+        return expr.value;
+      }
+      if (expr instanceof SymbolExpr) {
+        return env.get(expr.token.lexeme);
+      }
+      if (expr instanceof LambdaExpr) {
+        return new Function(expr.args, expr.body);
+      }
+      if (expr instanceof DefineExpr) {
+        return env.set(expr.name.lexeme, this.interpret(expr.value, env));
+      }
+      if (expr instanceof IfExpr) {
+        const cond = this.interpret(expr.condition, env);
+        if (cond !== false) {
+          expr = expr.thenBranch;
+          continue;
+        }
+        expr = expr.elseBranch;
+        continue;
+      }
+      throw new Error('Unknown expression to interpret: ' + expr.constructor.name);
     }
-    throw new Error('Unknown expression to interpret: ' + expr.constructor.name);
   }
 }
 
@@ -401,21 +403,34 @@ class Function {
     this.args = args;
   }
 
-  call(args, interpreter) {
-    const env = new Environment(interpreter.env);
+  call(args, env) {
+    const fnEnv = new Environment(env);
     for (let i = 0; i < this.args.items.length; i++) {
       const arg = this.args.items[i];
-      env.set(arg.token.lexeme, args[i]);
+      fnEnv.set(arg.token.lexeme, args[i]);
     }
-    const previous = interpreter.env;
-    interpreter.env = env;
-    const result = interpreter.interpret(this.declaration);
-    interpreter.env = previous;
-    return result;
+    return interpreter.interpret(this.declaration, fnEnv);
   }
 }
 
 const interpreter = new Interpreter();
+
+const env = new Environment();
+env.set('*', { call: (args) => args.reduce((a, b) => a * b) });
+env.set('+', { call: (args) => args.reduce((a, b) => a + b) });
+env.set('-', { call: (args) => args.reduce((a, b) => a - b) });
+env.set('/', { call: (args) => args.reduce((a, b) => a / b) });
+env.set('=', { call: (args) => args.reduce((a, b) => a === b) });
+env.set('<=', { call: (args) => args.reduce((a, b) => a <= b) });
+env.set('>=', { call: (args) => args.reduce((a, b) => a >= b) });
+env.set('string-length', { call: (args) => args[0].length });
+env.set('string-append', { call: (args) => args[0] + args[1] });
+env.set('list', { call: (args) => args });
+env.set('null?', { call: (args) => Array.isArray(args[0]) && args[0].length === 0 });
+env.set('car', { call: (args) => args[0][0] });
+env.set('cdr', { call: (args) => args[0].slice(1) });
+env.set('cons', { call: (args) => [args[0], ...args[1]] });
+env.set('remainder', { call: (args) => args[0] % args[1] });
 
 function run(source) {
   const scanner = new Scanner(source);
@@ -424,8 +439,10 @@ function run(source) {
   const parser = new Parser(tokens);
   const expressions = parser.parse();
 
-  return interpreter.interpretAll(expressions);
+  return interpreter.interpretAll(expressions, env);
 }
+
+const assert = require('assert');
 
 // Tests from https://github.com/FZSS/scheme/blob/master/tests.scm
 
