@@ -1,3 +1,163 @@
+/**
+ * The Scanner scans a source string into a list of tokens
+ */
+class Scanner {
+  start = 0;
+  current = 0;
+  /**
+   * @type {Token[]}
+   */
+  tokens = [];
+
+  /**
+   *
+   * @param {string} source
+   */
+  constructor(source) {
+    this.source = source;
+  }
+
+  /**
+   * Scans the source string and returns all the found tokens
+   */
+  scan() {
+    try {
+      while (!this.isAtEnd()) {
+        this.start = this.current;
+        const char = this.advance();
+
+        switch (char) {
+          case '(':
+            this.addToken(TokenType.LeftBracket);
+            break;
+          case ')':
+            this.addToken(TokenType.RightBracket);
+            break;
+          case ' ':
+          case '\n':
+            break;
+          case '#':
+            if (this.peek() === 't') {
+              this.advance();
+              this.addToken(TokenType.True);
+              break;
+            }
+            if (this.peek() === 'f') {
+              this.advance();
+              this.addToken(TokenType.False);
+              break;
+            }
+          case '"':
+            while (this.peek() !== '"' && !this.isAtEnd()) {
+              this.advance();
+            }
+            const str = this.source.slice(this.start + 1, this.current);
+            this.addTokenWithLiteral(TokenType.String, str);
+            this.advance();
+            break;
+          default:
+            if (this.isDigit(char)) {
+              while (this.isDigitOrDot(this.peek())) {
+                this.advance();
+              }
+              const numStr = this.source.slice(this.start, this.current);
+              const num = parseFloat(numStr);
+              this.addTokenWithLiteral(TokenType.Number, num);
+              break;
+            } else if (this.isIdentifierChar(char)) {
+              while (this.isIdentifierChar(this.peek())) {
+                this.advance();
+              }
+              this.addToken(TokenType.Symbol);
+              break;
+            }
+            throw new SyntaxError('Unknown token ' + char);
+        }
+      }
+      return this.tokens;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        console.error(error.toString());
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Returns true if char is is valid identifier character
+   *
+   * @param {string} char
+   */
+  isIdentifierChar(char) {
+    return (
+      this.isDigitOrDot(char) ||
+      (char >= 'A' && char <= 'Z') ||
+      (char >= 'a' && char <= 'z') ||
+      ['+', '-', '.', '*', '/', '<', '=', '>', '!', '?', ':', '$', '%', '_', '&', '~', '^'].includes(char)
+    );
+  }
+
+  /**
+   * Returns the current character and moves the scanner forward by one
+   */
+  advance() {
+    return this.source[this.current++];
+  }
+
+  /**
+   * Returns the current character
+   */
+  peek() {
+    return this.source[this.current];
+  }
+
+  /**
+   * Returns true if char is a digit
+   * @param {string} char
+   */
+  isDigit(char) {
+    return char >= '0' && char <= '9';
+  }
+
+  /**
+   * Returns true if char is a digit or a dot
+   * @param {string} char
+   */
+  isDigitOrDot(char) {
+    return this.isDigit(char) || char === '.';
+  }
+
+  /**
+   * Adds a token with the given type to the token list
+   * @param {TokenType} tokenType
+   */
+  addToken(tokenType) {
+    this.addTokenWithLiteral(tokenType);
+  }
+
+  /**
+   * Adds a token with the given type and literal value to the token list
+   * @param {TokenType} tokenType
+   * @param {any} literal
+   */
+  addTokenWithLiteral(tokenType, literal) {
+    const lexeme = this.source.slice(this.start, this.current);
+    const token = new Token(tokenType, this.start, lexeme, literal);
+    this.tokens.push(token);
+  }
+
+  /**
+   * Returns true if scanning is complete
+   */
+  isAtEnd() {
+    return this.current >= this.source.length;
+  }
+}
+
+/**
+ * @enum {string}
+ */
 const TokenType = {
   LeftBracket: 'LeftBracket',
   RightBracket: 'RightBracket',
@@ -8,7 +168,16 @@ const TokenType = {
   String: 'String',
 };
 
+/**
+ * A Token is a useful unit of the program source
+ */
 class Token {
+  /**
+   *
+   * @param {TokenType} tokenType
+   * @param {number} start
+   * @param {string} lexeme
+   * @param {any} literal */
   constructor(tokenType, start, lexeme, literal) {
     this.tokenType = tokenType;
     this.start = start;
@@ -17,165 +186,140 @@ class Token {
   }
 }
 
-class Scanner {
-  start = 0;
-  current = 0;
-  tokens = [];
-
-  constructor(source) {
-    this.source = source;
+/**
+ * A "compile-time" error that occurs during scanning or parsing.
+ */
+class SyntaxError extends Error {
+  /**
+   *
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
   }
 
-  scan() {
-    while (!this.isAtEnd()) {
-      this.start = this.current;
-      const char = this.advance();
-
-      switch (char) {
-        case '(':
-          this.addToken(TokenType.LeftBracket);
-          break;
-        case ')':
-          this.addToken(TokenType.RightBracket);
-          break;
-        case ' ':
-        case '\n':
-          break;
-        case '#':
-          if (this.peek() === 't') {
-            this.advance();
-            this.addToken(TokenType.True);
-            break;
-          }
-          if (this.peek() === 'f') {
-            this.advance();
-            this.addToken(TokenType.False);
-            break;
-          }
-        case '"':
-          while (this.peek() !== '"' && !this.isAtEnd()) {
-            this.advance();
-          }
-          const str = this.source.slice(this.start + 1, this.current);
-          this.addTokenWithLiteral(TokenType.String, str);
-          this.advance();
-          break;
-        default:
-          if (this.isDigit(char)) {
-            while (this.isDigitOrDot(this.peek())) {
-              this.advance();
-            }
-            const numStr = this.source.slice(this.start, this.current);
-            const num = parseFloat(numStr);
-            this.addTokenWithLiteral(TokenType.Number, num);
-            break;
-          } else if (this.isIdentifierChar(char)) {
-            while (this.isIdentifierChar(this.peek())) {
-              this.advance();
-            }
-            this.addToken(TokenType.Symbol);
-            break;
-          }
-          throw new Error('Unknown token ' + char);
-      }
-    }
-    return this.tokens;
-  }
-
-  isIdentifierChar(char) {
-    return (
-      this.isDigitOrDot(char) ||
-      (char >= 'A' && char <= 'Z') ||
-      (char >= 'a' && char <= 'z') ||
-      ['+', '-', '.', '*', '/', '<', '=', '>', '!', '?', ':', '$', '%', '_', '&', '~', '^'].includes(char)
-    );
-  }
-
-  advance() {
-    return this.source[this.current++];
-  }
-
-  peek() {
-    return this.source[this.current];
-  }
-
-  isDigit(char) {
-    return char >= '0' && char <= '9';
-  }
-
-  isDigitOrDot(char) {
-    return this.isDigit(char) || char === '.';
-  }
-
-  addToken(tokenType) {
-    this.addTokenWithLiteral(tokenType);
-  }
-
-  addTokenWithLiteral(tokenType, literal) {
-    const lexeme = this.source.slice(this.start, this.current);
-    const token = new Token(tokenType, this.start, lexeme, literal);
-    this.tokens.push(token);
-  }
-
-  isAtEnd() {
-    return this.current >= this.source.length;
+  toString() {
+    return `SyntaxError: ${this.message}`;
   }
 }
 
+/**
+ * Value of null and the empty list
+ */
+const NULL_VALUE = [];
+
+/**
+ * The Parser parses a list of tokens into an AST
+ *
+ * Parser grammar:
+ *  program => ( list )*
+ *  list    => lambda | define | if | "(" ( list )* ")" | function | atom
+ *  lambda  => "(" "lambda" list list ")"
+ *  define  => "(" "define" IDENTIFIER list ")"
+ *  if      => "(" "if" list list list? ")"
+ *  atom    => SYMBOL | NUMBER | TRUE | FALSE | STRING
+ */
 class Parser {
   current = 0;
 
+  /**
+   *
+   * @param {Token[]} tokens
+   */
   constructor(tokens) {
     this.tokens = tokens;
   }
 
   /**
-   * Parser grammar:
-   *  program    => ( list )*
-   *  list       => lambda | define | if | "(" ( list )* ")" | function | atom
-   *  lambda     => "(" "lambda" list list ")"
-   *  define     => "(" "define" IDENTIFIER list ")"
-   *  if         => "(" "if" list list list? ")"
-   *  atom       => SYMBOL | NUMBER | TRUE | FALSE | STRING
+   * Parses the expressions in the token list
    */
   parse() {
-    const expressions = [];
-    while (!this.isAtEnd()) {
-      const expr = this.list();
-      expressions.push(expr);
+    try {
+      const expressions = [];
+      while (!this.isAtEnd()) {
+        const expr = this.list();
+        expressions.push(expr);
+      }
+      return expressions;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        console.error(error.toString());
+        return [];
+      }
+      throw error;
     }
-    return expressions;
   }
 
+  /**
+   * Parses a list expression
+   * @returns {Expr}
+   */
   list() {
     if (this.match(TokenType.LeftBracket)) {
-      if (this.peek().lexeme === 'lambda') {
-        return this.lambda();
-      }
-      if (this.peek().lexeme === 'define') {
-        return this.define();
-      }
-      if (this.peek().lexeme === 'if') {
-        return this.if();
+      const token = this.peek();
+      if (!token) {
+        throw new SyntaxError('Unexpected EOF');
       }
 
-      const items = [];
-      while (!this.match(TokenType.RightBracket)) {
-        items.push(this.list());
+      if (token.lexeme === 'lambda') {
+        return this.lambda();
       }
-      return new ListExpr(items);
+      if (token.lexeme === 'define') {
+        return this.define();
+      }
+      if (token.lexeme === 'if') {
+        return this.if();
+      }
+      if (token.lexeme === 'set!') {
+        return this.set();
+      }
+
+      const children = [];
+      while (!this.match(TokenType.RightBracket)) {
+        children.push(this.list());
+      }
+
+      if (children.length === 0) {
+        return new LiteralExpr(NULL_VALUE);
+      }
+
+      return new CallExpr(children);
     }
     return this.atom();
   }
 
+  /**
+   * Parses a lambda expression
+   * @returns {Expr}
+   */
   lambda() {
     this.advance();
-    const args = this.list();
-    const body = this.list();
-    this.consume(TokenType.RightBracket);
-    return new LambdaExpr(args, body);
+
+    /**
+     * @type {SymbolExpr[]}
+     */
+    const params = [];
+    this.consume(TokenType.LeftBracket);
+    while (!this.match(TokenType.RightBracket)) {
+      const token = this.consume(TokenType.Symbol);
+      params.push(new SymbolExpr(token));
+    }
+
+    /**
+     * @type {Expr[]}
+     */
+    const body = [];
+    while (!this.match(TokenType.RightBracket)) {
+      body.push(this.list());
+    }
+
+    return new LambdaExpr(params, new ListExpr(body));
   }
 
+  /**
+   * Parses a define expression
+   * @returns {Expr}
+   */
   define() {
     this.advance();
     const name = this.consume(TokenType.Symbol);
@@ -184,6 +328,10 @@ class Parser {
     return new DefineExpr(name, value);
   }
 
+  /**
+   * Parses an if expression
+   * @returns {Expr}
+   */
   if() {
     this.advance();
     const cond = this.list();
@@ -196,6 +344,18 @@ class Parser {
     return new IfExpr(cond, thenBranch, elseBranch);
   }
 
+  set() {
+    this.advance();
+    const name = this.consume(TokenType.Symbol);
+    const value = this.list();
+    this.consume(TokenType.RightBracket);
+    return new SetExpr(name, value);
+  }
+
+  /**
+   * Parses an atom expression
+   * @returns {Expr}
+   */
   atom() {
     switch (true) {
       case this.match(TokenType.Symbol):
@@ -209,21 +369,31 @@ class Parser {
       case this.match(TokenType.String):
         return new LiteralExpr(this.previous().literal);
       default:
-        throw new Error('Unable to parse: ' + this.peek().tokenType);
+        throw new SyntaxError(`Unexpected token: ${this.peek().lexeme}`);
     }
   }
 
+  /**
+   * Returns true if all tokens have been parsed
+   */
   isAtEnd() {
     return this.current >= this.tokens.length;
   }
 
+  /**
+   * Returns the current token if it matches the given token type. Else, it throws an error.
+   * @param {TokenType} tokenType
+   */
   consume(tokenType) {
     if (this.check(tokenType)) {
       return this.advance();
     }
-    throw new Error('Expected ' + tokenType);
+    throw new SyntaxError(`Unexpected token ${this.previous()}, expected ${tokenType}`);
   }
 
+  /**
+   * Returns the current token and advances to the next token
+   */
   advance() {
     if (!this.isAtEnd()) {
       this.current++;
@@ -231,6 +401,10 @@ class Parser {
     return this.previous();
   }
 
+  /**
+   * Returns true if the current token matches the given token type and then advances
+   * @param {TokenType} tokenType
+   */
   match(tokenType) {
     if (this.check(tokenType)) {
       this.current++;
@@ -239,127 +413,203 @@ class Parser {
     return false;
   }
 
+  /**
+   * Returns true if the current token matches the given token type
+   * @param {TokenType} tokenType
+   */
   check(tokenType) {
     return this.peek().tokenType === tokenType;
   }
 
+  /**
+   * Returns the current token
+   */
   peek() {
     return this.tokens[this.current];
   }
 
+  /**
+   * Returns the previous token
+   */
   previous() {
     return this.tokens[this.current - 1];
   }
 }
 
-class ListExpr {
-  constructor(items) {
-    this.items = items;
+class Expr {}
+
+class ListExpr extends Expr {
+  /**
+   * @param {Expr[]} children
+   */
+  constructor(children) {
+    super();
+    this.children = children;
   }
 }
 
-class SymbolExpr {
+class CallExpr extends Expr {
+  /**
+   * @param {Expr[]} children
+   */
+  constructor(children) {
+    super();
+    this.children = children;
+  }
+}
+
+class SymbolExpr extends Expr {
+  /**
+   * @param {Token} token
+   */
   constructor(token) {
+    super();
     this.token = token;
   }
 }
 
-class LiteralExpr {
+class LiteralExpr extends Expr {
+  /**
+   * @param {any} value
+   */
   constructor(value) {
+    super();
     this.value = value;
   }
 }
 
-class LambdaExpr {
-  constructor(args, body) {
-    this.args = args;
+class LambdaExpr extends Expr {
+  /**
+   * @param {SymbolExpr[]} params
+   * @param {ListExpr} body
+   */
+  constructor(params, body) {
+    super();
+    this.params = params;
     this.body = body;
   }
 }
 
-class DefineExpr {
+class SetExpr extends Expr {
+  /**
+   * @param {Token} name
+   * @param {Expr} value
+   */
   constructor(name, value) {
+    super();
     this.name = name;
     this.value = value;
   }
 }
 
-class IfExpr {
+class DefineExpr extends Expr {
+  /**
+   * @param {Token} name
+   * @param {Expr} value
+   */
+  constructor(name, value) {
+    super();
+    this.name = name;
+    this.value = value;
+  }
+}
+
+class IfExpr extends Expr {
+  /**
+   * @param {Expr} condition
+   * @param {Expr} thenBranch
+   * @param {Expr} elseBranch
+   */
   constructor(condition, thenBranch, elseBranch) {
+    super();
     this.condition = condition;
     this.thenBranch = thenBranch;
     this.elseBranch = elseBranch;
   }
 }
 
-class Environment {
-  constructor(enclosing) {
-    this.values = new Map();
-    this.enclosing = enclosing;
-  }
-
-  set(name, value) {
-    this.values.set(name, value);
-  }
-
-  get(name) {
-    if (this.values.has(name)) {
-      return this.values.get(name);
-    }
-    if (this.enclosing) {
-      return this.enclosing.get(name);
-    }
-    throw new Error('Unknown identifier: ' + name);
-  }
-}
-
+/**
+ * The Interpreter interprets (or executes) the parsed expressions
+ */
 class Interpreter {
-  interpretAll(expressions, env) {
-    let result;
-    for (const expr of expressions) {
-      result = this.interpret(expr, env);
-    }
-    return this.stringify(result);
+  constructor() {
+    // Setup the interpreter's environment with the built-in functions
+    this.env = new Environment();
+    this.env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b)));
+    this.env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b)));
+    this.env.define('-', new BuiltIn((args) => args.reduce((a, b) => a - b)));
+    this.env.define('/', new BuiltIn((args) => args.reduce((a, b) => a / b)));
+    this.env.define('=', new BuiltIn((args) => args.reduce((a, b) => a === b)));
+    this.env.define('<=', new BuiltIn((args) => args.reduce((a, b) => a <= b)));
+    this.env.define('>=', new BuiltIn((args) => args.reduce((a, b) => a >= b)));
+    this.env.define('string-length', new BuiltIn(([str]) => str.length));
+    this.env.define('string-append', new BuiltIn((args) => args.reduce((a, b) => a + b)));
+    this.env.define('list', new BuiltIn((args) => args));
+    this.env.define('null?', new BuiltIn(([arg]) => arg === NULL_VALUE));
+    this.env.define('list?', new BuiltIn(([arg]) => arg instanceof Array));
+    this.env.define('number?', new BuiltIn(([arg]) => arg instanceof Number));
+    this.env.define('procedure?', new BuiltIn(([arg]) => arg instanceof Procedure || arg instanceof BuiltIn));
+    this.env.define('car', new BuiltIn(([arg]) => arg[0]));
+    this.env.define('cdr', new BuiltIn(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
+    this.env.define('cons', new BuiltIn(([a, b]) => [a, ...b]));
+    this.env.define('remainder', new BuiltIn(([a, b]) => a % b));
+    this.env.define('quote', new BuiltIn(([arg]) => arg));
+    this.env.define('begin', new BuiltIn((args) => args[args.length - 1]));
+    this.env.define('equal?', new BuiltIn(([a, b]) => a === b));
+    this.env.define('not', new BuiltIn(([arg]) => !arg));
+    this.env.define('round', new BuiltIn(([arg]) => Math.round(arg)));
+    this.env.define('abs', new BuiltIn(([arg]) => Math.abs(arg)));
+    this.env.define('display', new BuiltIn(([arg]) => console.log(arg)));
+    this.env.define('apply', new BuiltIn(([proc, args]) => proc.call(this, args)));
   }
 
-  stringify(expr) {
-    if (expr === false) {
-      return '#f';
+  /**
+   * Executes the list of expressions and returns the result. If a
+   * RuntimeError occurs, it prints the error and returns the null value.
+   * @param {Expr[]} expressions
+   */
+  interpretAll(expressions) {
+    try {
+      let result;
+      for (const expr of expressions) {
+        result = this.interpret(expr, this.env);
+      }
+      return this.stringify(result);
+    } catch (error) {
+      if (error instanceof RuntimeError) {
+        console.error(error.toString());
+        return this.stringify(NULL_VALUE);
+      }
+      throw error;
     }
-    if (expr === true) {
-      return '#t';
-    }
-    if (expr === undefined) {
-      return '#f';
-    }
-    if (Array.isArray(expr)) {
-      return '(' + expr.join(' ') + ')';
-    }
-    return expr.toString();
   }
 
+  /**
+   * Executes an expression within an environment and returns its value
+   * @param {Expr} expr
+   * @param {Environment} env
+   */
   interpret(expr, env) {
     while (true) {
-      if (expr instanceof ListExpr) {
-        const [name, ...body] = expr.items;
+      if (expr instanceof CallExpr) {
+        const [name, ...args] = expr.children;
 
-        const args = [];
-        for (const arg of body) {
-          args.push(this.interpret(arg, env));
-        }
-
+        const params = args.map((arg) => this.interpret(arg, env));
         const callee = this.interpret(name, env);
+
+        // Eliminate the tail-call of running this procedure by "continuing the interpret loop"
+        // with the function body set as the current expression and the function's closure set
+        // as the current environment
         if (callee instanceof Procedure) {
-          const fnEnv = new Environment(env);
-          for (let i = 0; i < callee.args.items.length; i++) {
-            const calleeArg = callee.args.items[i];
-            fnEnv.set(calleeArg.token.lexeme, args[i]);
-          }
-          expr = callee.declaration;
+          const fnEnv = new Environment(callee.declaration.params, params, callee.closure);
+          expr = callee.declaration.body;
           env = fnEnv;
           continue;
         }
-        return callee(args, env);
+        if (callee instanceof BuiltIn) {
+          return callee.call(this, params);
+        }
+        throw new RuntimeError('Cannot call ' + this.stringify(callee));
       }
       if (expr instanceof LiteralExpr) {
         return expr.value;
@@ -368,13 +618,15 @@ class Interpreter {
         return env.get(expr.token.lexeme);
       }
       if (expr instanceof LambdaExpr) {
-        return new Procedure(expr.args, expr.body);
+        return new Procedure(expr, env);
       }
       if (expr instanceof DefineExpr) {
-        return env.set(expr.name.lexeme, this.interpret(expr.value, env));
+        return env.define(expr.name.lexeme, this.interpret(expr.value, env));
       }
       if (expr instanceof IfExpr) {
         const cond = this.interpret(expr.condition, env);
+        // Eliminate the tail call of the if branches by "continuing the interpret loop"
+        // with the branch set as the current expression
         if (cond !== false) {
           expr = expr.thenBranch;
           continue;
@@ -382,40 +634,176 @@ class Interpreter {
         expr = expr.elseBranch;
         continue;
       }
-      throw new Error('Unknown expression to interpret: ' + expr.constructor.name);
+      if (expr instanceof ListExpr) {
+        // Can this be cleaner?
+        for (const inner of expr.children.slice(0, -1)) {
+          this.interpret(inner, env);
+        }
+        expr = expr.children[expr.children.length - 1];
+        continue;
+      }
+      if (expr instanceof SetExpr) {
+        return this.env.set(expr.name.lexeme, this.interpret(expr.value, env));
+      }
+      throw new Error('Cannot interpret: ' + expr.constructor.name); // Should be un-reachable
     }
   }
-}
 
-class Procedure {
-  constructor(args, declaration) {
-    this.declaration = declaration;
-    this.args = args;
+  /**
+   * Converts the given value to a printable string
+   * @param {any} value
+   * @returns {string}
+   */
+  stringify(value) {
+    if (value === false) {
+      return '#f';
+    }
+    if (value === true) {
+      return '#t';
+    }
+    if (value === undefined) {
+      return '#f';
+    }
+    if (Array.isArray(value)) {
+      return '(' + value.join(' ') + ')';
+    }
+    if (value instanceof BuiltIn) {
+      return 'PrimitiveProcedure';
+    }
+    if (value instanceof Procedure) {
+      return 'Procedure';
+    }
+    return value.toString();
   }
 }
 
-function getInitialEnvironment() {
-  const env = new Environment();
-  env.set('*', (args) => args.reduce((a, b) => a * b));
-  env.set('+', (args) => args.reduce((a, b) => a + b));
-  env.set('-', (args) => args.reduce((a, b) => a - b));
-  env.set('/', (args) => args.reduce((a, b) => a / b));
-  env.set('=', (args) => args.reduce((a, b) => a === b));
-  env.set('<=', (args) => args.reduce((a, b) => a <= b));
-  env.set('>=', (args) => args.reduce((a, b) => a >= b));
-  env.set('string-length', (args) => args[0].length);
-  env.set('string-append', (args) => args[0] + args[1]);
-  env.set('list', (args) => args);
-  env.set('null?', (args) => Array.isArray(args[0]) && args[0].length === 0);
-  env.set('car', (args) => args[0][0]);
-  env.set('cdr', (args) => args[0].slice(1));
-  env.set('cons', (args) => [args[0], ...args[1]]);
-  env.set('remainder', (args) => args[0] % args[1]);
-  return env;
+/**
+ * An Environment stores variables and their values
+ */
+class Environment {
+  /**
+   *
+   * @param {SymbolExpr[]=} params
+   * @param {any[]=} args
+   * @param {Environment=} enclosing
+   */
+  constructor(params = [], args, enclosing) {
+    /**
+     * @type {Map<string, any>}
+     */
+    this.values = new Map();
+    params.forEach((param, i) => {
+      this.values.set(param.token.lexeme, args[i]);
+    });
+
+    this.enclosing = enclosing;
+  }
+
+  /**
+   * Define the value of name in the current environment
+   * @param {string} name
+   * @param {any} value
+   */
+  define(name, value) {
+    this.values.set(name, value);
+  }
+
+  /**
+   * Sets the value of name defined in this environment or an enclosing environment
+   * @param {string} name
+   * @param {any} value
+   */
+  set(name, value) {
+    if (this.values.has(name)) {
+      return this.values.set(name, value);
+    }
+    if (this.enclosing) {
+      return this.enclosing.set(name, value);
+    }
+    throw new RuntimeError('Unknown identifier: ' + name);
+  }
+
+  /**
+   * Gets the value of name from the environment. If the name doesn't
+   * exist in this environment, it checks in the enclosing environment.
+   * When there is no longer an enclosing environment to check and the
+   * name is not found, it throws a RuntimeError.
+   * @param {string} name
+   */
+  get(name) {
+    if (this.values.has(name)) {
+      return this.values.get(name);
+    }
+    if (this.enclosing) {
+      return this.enclosing.get(name);
+    }
+    throw new RuntimeError('Unknown identifier: ' + name);
+  }
 }
 
-const interpreter = new Interpreter();
-const env = getInitialEnvironment();
+/**
+ * A built-in wraps a built-in function
+ * that can be called from the program.
+ */
+class BuiltIn {
+  /**
+   *
+   * @param {Function} declaration
+   */
+  constructor(declaration) {
+    this.declaration = declaration;
+  }
+
+  /**
+   *
+   * @param {Interpreter} _
+   * @param {any[]} params
+   */
+  call(_, params) {
+    return this.declaration(params);
+  }
+}
+
+/**
+ * A Procedure is a function defined in the program
+ */
+class Procedure {
+  /**
+   * @param {LambdaExpr} declaration
+   * @param {Environment} closure
+   */
+  constructor(declaration, closure) {
+    this.declaration = declaration;
+    this.closure = closure;
+  }
+
+  /**
+   * Sets up the environment for the procedure given its
+   * arguments and then runs the procedure's body
+   * @param {Interpreter} interpreter
+   * @param {any[]} args
+   * @returns
+   */
+  call(interpreter, args) {
+    const env = new Environment(this.declaration.params, args, this.closure);
+    return interpreter.interpret(this.declaration.body, env);
+  }
+}
+
+/**
+ * A RuntimeError is a ... run-time error
+ */
+class RuntimeError extends Error {
+  constructor(message) {
+    super(message);
+  }
+
+  toString() {
+    return 'Error: ' + this.message;
+  }
+}
+
+let interpreter = new Interpreter();
 
 function run(source) {
   const scanner = new Scanner(source);
@@ -424,12 +812,13 @@ function run(source) {
   const parser = new Parser(tokens);
   const expressions = parser.parse();
 
-  return interpreter.interpretAll(expressions, env);
+  return interpreter.interpretAll(expressions);
 }
 
-const assert = require('assert');
+// TESTS
+// Source: https://github.com/FZSS/scheme/blob/master/tests.scm
 
-// Tests from https://github.com/FZSS/scheme/blob/master/tests.scm
+const assert = require('assert');
 
 assert.equal(run(`10`), '10');
 assert.equal(run(`(+ 137 349)`), '486');
@@ -511,3 +900,43 @@ run(`(define sum-to
         acc
         (sum-to (- n 1) (+ n acc)))))`);
 assert.equal(run(`(sum-to 10000 0)`), '50005000'); // TCE!
+
+assert.equal(run(`)(define a "scheme_read test")`), '#f');
+
+run(`(define range (lambda (a b) (if (= a b) (quote ()) (cons a (range (+ a 1) b)))))`);
+assert.equal(run(`(range 0 10)`), '(0 1 2 3 4 5 6 7 8 9)');
+
+run(`(define fact (lambda (n) (if (<= n 1) 1 (* n (fact (- n 1))))))`);
+assert.equal(run(`(fact 100)`), '9.33262154439441e+157');
+
+assert.equal(run(`(begin (define r 10) (* pi (* r r)))`), '314.159');
+
+assert.equal(run(`(apply + (list 10 20 30))`), '60');
+
+assert.equal(run(`(apply map (list fact (list 5 10)))`), '(120 3628800)');
+
+run(`§§`); // SyntaxError: Unknown token
+
+run(`(define x 3)
+(define foo (lambda () (define x 4) x))
+(define bar (lambda () (set! x 4) x))
+  `);
+
+assert.equal(run(`(foo)`), '4');
+assert.equal(run(`x`), '3');
+assert.equal(run(`(bar)`), '4');
+assert.equal(run(`x`), '4');
+
+console.log('tests successful...\n');
+
+// REPL
+
+interpreter = new Interpreter();
+
+const repl = require('repl');
+repl.start({
+  prompt: 'jscheme> ',
+  eval: (input, context, filename, callback) => {
+    callback(null, run(input));
+  },
+});
