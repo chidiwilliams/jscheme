@@ -273,6 +273,9 @@ class Parser {
       if (token.lexeme === 'set!') {
         return this.set();
       }
+      if (token.lexeme === 'let') {
+        return this.let();
+      }
 
       const children = [];
       while (!this.match(TokenType.RightBracket)) {
@@ -296,13 +299,13 @@ class Parser {
     this.advance();
 
     /**
-     * @type {SymbolExpr[]}
+     * @type {Token[]}
      */
     const params = [];
     this.consume(TokenType.LeftBracket);
     while (!this.match(TokenType.RightBracket)) {
       const token = this.consume(TokenType.Symbol);
-      params.push(new SymbolExpr(token));
+      params.push(token);
     }
 
     /**
@@ -344,12 +347,42 @@ class Parser {
     return new IfExpr(cond, thenBranch, elseBranch);
   }
 
+  /**
+   * Parses a set expression
+   * @returns {Expr}
+   */
   set() {
     this.advance();
     const name = this.consume(TokenType.Symbol);
     const value = this.list();
     this.consume(TokenType.RightBracket);
     return new SetExpr(name, value);
+  }
+
+  /**
+   * Parses a let expression
+   * @returns {Expr}
+   */
+  let() {
+    this.advance();
+
+    this.consume(TokenType.LeftBracket);
+
+    const bindings = [];
+    while (!this.match(TokenType.RightBracket)) {
+      bindings.push(this.letBinding());
+    }
+
+    const body = this.list();
+    return new LetExpr(bindings, body);
+  }
+
+  letBinding() {
+    this.consume(TokenType.LeftBracket);
+    const name = this.consume(TokenType.Symbol);
+    const value = this.list();
+    this.consume(TokenType.RightBracket);
+    return new LetBindingNode(name, value);
   }
 
   /**
@@ -388,7 +421,7 @@ class Parser {
     if (this.check(tokenType)) {
       return this.advance();
     }
-    throw new SyntaxError(`Unexpected token ${this.previous()}, expected ${tokenType}`);
+    throw new SyntaxError(`Unexpected token ${this.previous().tokenType}, expected ${tokenType}`);
   }
 
   /**
@@ -480,7 +513,7 @@ class LiteralExpr extends Expr {
 
 class LambdaExpr extends Expr {
   /**
-   * @param {SymbolExpr[]} params
+   * @param {Token[]} params
    * @param {ListExpr} body
    */
   constructor(params, body) {
@@ -525,6 +558,28 @@ class IfExpr extends Expr {
     this.condition = condition;
     this.thenBranch = thenBranch;
     this.elseBranch = elseBranch;
+  }
+}
+
+class LetExpr {
+  /**
+   * @param {LetBindingNode[]} bindings
+   * @param {Expr} body
+   */
+  constructor(bindings, body) {
+    this.bindings = bindings;
+    this.body = body;
+  }
+}
+
+class LetBindingNode {
+  /**
+   * @param {Token} name
+   * @param {Expr} value
+   */
+  constructor(name, value) {
+    this.name = name;
+    this.value = value;
   }
 }
 
@@ -645,6 +700,13 @@ class Interpreter {
       if (expr instanceof SetExpr) {
         return this.env.set(expr.name.lexeme, this.interpret(expr.value, env));
       }
+      if (expr instanceof LetExpr) {
+        const params = expr.bindings.map((binding) => binding.name);
+        const args = expr.bindings.map((binding) => this.interpret(binding.value, env));
+        env = new Environment(params, args, env);
+        expr = expr.body;
+        continue;
+      }
       throw new Error('Cannot interpret: ' + expr.constructor.name); // Should be un-reachable
     }
   }
@@ -683,7 +745,7 @@ class Interpreter {
 class Environment {
   /**
    *
-   * @param {SymbolExpr[]=} params
+   * @param {Token[]=} params
    * @param {any[]=} args
    * @param {Environment=} enclosing
    */
@@ -693,7 +755,7 @@ class Environment {
      */
     this.values = new Map();
     params.forEach((param, i) => {
-      this.values.set(param.token.lexeme, args[i]);
+      this.values.set(param.lexeme, args[i]);
     });
 
     this.enclosing = enclosing;
@@ -926,6 +988,15 @@ assert.equal(run(`(foo)`), '4');
 assert.equal(run(`x`), '3');
 assert.equal(run(`(bar)`), '4');
 assert.equal(run(`x`), '4');
+
+run(`(define f (lambda (x y)
+  (let ((a (+ 1 (* x y)))
+        (b (- 1 y)))
+    (+ (* x (square a))
+       (* y b)
+       (* a b))))
+`);
+assert.equal(run(`(f 3 4)`), '456');
 
 console.log('tests successful...\n');
 
