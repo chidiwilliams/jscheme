@@ -277,16 +277,17 @@ class Parser {
         return this.let();
       }
 
-      const children = [];
-      while (!this.match(TokenType.RightBracket)) {
-        children.push(this.list());
-      }
-
-      if (children.length === 0) {
+      if (this.match(TokenType.RightBracket)) {
         return new LiteralExpr(NULL_VALUE);
       }
 
-      return new CallExpr(children);
+      const callee = this.list();
+
+      const args = [];
+      while (!this.match(TokenType.RightBracket)) {
+        args.push(this.list());
+      }
+      return new CallExpr(callee, args);
     }
     return this.atom();
   }
@@ -483,11 +484,13 @@ class ListExpr extends Expr {
 
 class CallExpr extends Expr {
   /**
-   * @param {Expr[]} children
+   * @param {Expr} callee
+   * @param {Expr[]} args
    */
-  constructor(children) {
+  constructor(callee, args) {
     super();
-    this.children = children;
+    this.callee = callee;
+    this.args = args;
   }
 }
 
@@ -588,7 +591,7 @@ class LetBindingNode {
  */
 class Interpreter {
   constructor() {
-    // Setup the interpreter's environment with the built-in functions
+    // Setup the interpreter's environment with the built-in procedures
     this.env = new Environment();
     this.env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b)));
     this.env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b)));
@@ -647,18 +650,16 @@ class Interpreter {
   interpret(expr, env) {
     while (true) {
       if (expr instanceof CallExpr) {
-        const [name, ...args] = expr.children;
-
-        const params = args.map((arg) => this.interpret(arg, env));
-        const callee = this.interpret(name, env);
+        const params = expr.args.map((arg) => this.interpret(arg, env));
+        const callee = this.interpret(expr.callee, env);
 
         // Eliminate the tail-call of running this procedure by "continuing the interpret loop"
-        // with the function body set as the current expression and the function's closure set
+        // with the procedure's body set as the current expression and the procedure's closure set
         // as the current environment
         if (callee instanceof Procedure) {
-          const fnEnv = new Environment(callee.declaration.params, params, callee.closure);
+          const callEnv = new Environment(callee.declaration.params, params, callee.closure);
           expr = callee.declaration.body;
-          env = fnEnv;
+          env = callEnv;
           continue;
         }
         if (callee instanceof BuiltIn) {
@@ -804,8 +805,7 @@ class Environment {
 }
 
 /**
- * A built-in wraps a built-in function
- * that can be called from the program.
+ * A built-in procedure that can be called from the program.
  */
 class BuiltIn {
   /**
@@ -827,7 +827,7 @@ class BuiltIn {
 }
 
 /**
- * A Procedure is a function defined in the program
+ * A Procedure defined in the program
  */
 class Procedure {
   /**
@@ -853,7 +853,7 @@ class Procedure {
 }
 
 /**
- * A RuntimeError is a ... run-time error
+ * A run-time error
  */
 class RuntimeError extends Error {
   constructor(message) {
