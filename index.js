@@ -4,6 +4,7 @@
 class Scanner {
   start = 0;
   current = 0;
+  line = 0;
   /**
    * @type {Token[]}
    */
@@ -34,7 +35,11 @@ class Scanner {
             this.addToken(TokenType.RightBracket);
             break;
           case ' ':
+          case '\r':
+          case '\t':
+            break;
           case '\n':
+            this.line++;
             break;
           case '#':
             if (this.peek() === 't') {
@@ -51,8 +56,8 @@ class Scanner {
             while (this.peek() !== '"' && !this.isAtEnd()) {
               this.advance();
             }
-            const str = this.source.slice(this.start + 1, this.current);
-            this.addTokenWithLiteral(TokenType.String, str);
+            const literal = this.source.slice(this.start + 1, this.current);
+            this.addToken(TokenType.String, literal);
             this.advance();
             break;
           default:
@@ -60,36 +65,39 @@ class Scanner {
               while (this.isDigitOrDot(this.peek())) {
                 this.advance();
               }
-              const numStr = this.source.slice(this.start, this.current);
-              const num = parseFloat(numStr);
-              this.addTokenWithLiteral(TokenType.Number, num);
+              const numberAsString = this.source.slice(this.start, this.current);
+              const literal = parseFloat(numberAsString);
+              this.addToken(TokenType.Number, literal);
               break;
-            } else if (this.isIdentifierChar(char)) {
-              while (this.isIdentifierChar(this.peek())) {
+            }
+            if (this.isIdentifier(char)) {
+              while (this.isIdentifier(this.peek())) {
                 this.advance();
               }
               this.addToken(TokenType.Symbol);
               break;
             }
-            throw new SyntaxError('Unknown token ' + char);
+            throw new SyntaxError(this.line, 'Unknown token ' + char);
         }
       }
-      return this.tokens;
+
+      this.tokens.push(new Token(TokenType.Eof, 0, '', null, this.line));
+      return { tokens: this.tokens, hadError: false };
     } catch (error) {
       if (error instanceof SyntaxError) {
         console.error(error.toString());
-        return [];
+        return { tokens: this.tokens, hadError: true };
       }
       throw error;
     }
   }
 
   /**
-   * Returns true if char is is valid identifier character
+   * Returns true if char is is valid symbol character
    *
    * @param {string} char
    */
-  isIdentifierChar(char) {
+  isIdentifier(char) {
     return (
       this.isDigitOrDot(char) ||
       (char >= 'A' && char <= 'Z') ||
@@ -129,21 +137,13 @@ class Scanner {
   }
 
   /**
-   * Adds a token with the given type to the token list
-   * @param {TokenType} tokenType
-   */
-  addToken(tokenType) {
-    this.addTokenWithLiteral(tokenType);
-  }
-
-  /**
    * Adds a token with the given type and literal value to the token list
    * @param {TokenType} tokenType
    * @param {any} literal
    */
-  addTokenWithLiteral(tokenType, literal) {
+  addToken(tokenType, literal) {
     const lexeme = this.source.slice(this.start, this.current);
-    const token = new Token(tokenType, this.start, lexeme, literal);
+    const token = new Token(tokenType, this.start, lexeme, literal, this.line);
     this.tokens.push(token);
   }
 
@@ -166,6 +166,7 @@ const TokenType = {
   True: 'True',
   False: 'False',
   String: 'String',
+  Eof: 'Eof',
 };
 
 /**
@@ -173,16 +174,18 @@ const TokenType = {
  */
 class Token {
   /**
-   *
    * @param {TokenType} tokenType
    * @param {number} start
    * @param {string} lexeme
-   * @param {any} literal */
-  constructor(tokenType, start, lexeme, literal) {
+   * @param {any} literal
+   * @param {number} line
+   */
+  constructor(tokenType, start, lexeme, literal, line) {
     this.tokenType = tokenType;
     this.start = start;
     this.lexeme = lexeme;
     this.literal = literal;
+    this.line = line;
   }
 }
 
@@ -193,13 +196,15 @@ class SyntaxError extends Error {
   /**
    *
    * @param {string} message
+   * @param {number} line
    */
-  constructor(message) {
+  constructor(line, message) {
     super(message);
+    this.line = line;
   }
 
   toString() {
-    return `SyntaxError: ${this.message}`;
+    return `SyntaxError: [line: ${this.line}] ${this.message}`;
   }
 }
 
@@ -212,18 +217,11 @@ const NULL_VALUE = [];
  * The Parser parses a list of tokens into an AST
  *
  * Parser grammar:
- *  program => ( list )*
- *  list    => lambda | define | if | "(" ( list )* ")" | function | atom
- *  lambda  => "(" "lambda" list list ")"
- *  define  => "(" "define" IDENTIFIER list ")"
- *  if      => "(" "if" list list list? ")"
- *  atom    => SYMBOL | NUMBER | TRUE | FALSE | STRING
  */
 class Parser {
   current = 0;
 
-  /**
-   *
+  /*
    * @param {Token[]} tokens
    */
   constructor(tokens) {
@@ -237,7 +235,7 @@ class Parser {
     try {
       const expressions = [];
       while (!this.isAtEnd()) {
-        const expr = this.list();
+        const expr = this.expression();
         expressions.push(expr);
       }
       return expressions;
@@ -254,12 +252,12 @@ class Parser {
    * Parses a list expression
    * @returns {Expr}
    */
-  list() {
+  expression() {
     if (this.match(TokenType.LeftBracket)) {
       const token = this.peek();
-      if (!token) {
-        throw new SyntaxError('Unexpected EOF');
-      }
+      // if (!token) {
+      //   throw new SyntaxError(this.previous().line, 'Unexpected EOF');
+      // }
 
       if (token.lexeme === 'lambda') {
         return this.lambda();
@@ -281,11 +279,11 @@ class Parser {
         return new LiteralExpr(NULL_VALUE);
       }
 
-      const callee = this.list();
+      const callee = this.expression();
 
       const args = [];
       while (!this.match(TokenType.RightBracket)) {
-        args.push(this.list());
+        args.push(this.expression());
       }
       return new CallExpr(callee, args);
     }
@@ -314,10 +312,10 @@ class Parser {
      */
     const body = [];
     while (!this.match(TokenType.RightBracket)) {
-      body.push(this.list());
+      body.push(this.expression());
     }
 
-    return new LambdaExpr(params, new ListExpr(body));
+    return new LambdaExpr(params, body);
   }
 
   /**
@@ -327,7 +325,7 @@ class Parser {
   define() {
     this.advance();
     const name = this.consume(TokenType.Symbol);
-    const value = this.list();
+    const value = this.expression();
     this.consume(TokenType.RightBracket);
     return new DefineExpr(name, value);
   }
@@ -338,11 +336,11 @@ class Parser {
    */
   if() {
     this.advance();
-    const cond = this.list();
-    const thenBranch = this.list();
+    const cond = this.expression();
+    const thenBranch = this.expression();
     let elseBranch;
     if (!this.match(TokenType.RightBracket)) {
-      elseBranch = this.list();
+      elseBranch = this.expression();
     }
     this.consume(TokenType.RightBracket);
     return new IfExpr(cond, thenBranch, elseBranch);
@@ -355,7 +353,7 @@ class Parser {
   set() {
     this.advance();
     const name = this.consume(TokenType.Symbol);
-    const value = this.list();
+    const value = this.expression();
     this.consume(TokenType.RightBracket);
     return new SetExpr(name, value);
   }
@@ -374,14 +372,14 @@ class Parser {
       bindings.push(this.letBinding());
     }
 
-    const body = this.list();
+    const body = this.expression();
     return new LetExpr(bindings, body);
   }
 
   letBinding() {
     this.consume(TokenType.LeftBracket);
     const name = this.consume(TokenType.Symbol);
-    const value = this.list();
+    const value = this.expression();
     this.consume(TokenType.RightBracket);
     return new LetBindingNode(name, value);
   }
@@ -403,7 +401,7 @@ class Parser {
       case this.match(TokenType.String):
         return new LiteralExpr(this.previous().literal);
       default:
-        throw new SyntaxError(`Unexpected token: ${this.peek().lexeme}`);
+        throw new SyntaxError(this.peek().line, `Unexpected token: ${this.peek().tokenType}`);
     }
   }
 
@@ -411,7 +409,7 @@ class Parser {
    * Returns true if all tokens have been parsed
    */
   isAtEnd() {
-    return this.current >= this.tokens.length;
+    return this.peek().tokenType === TokenType.Eof;
   }
 
   /**
@@ -422,7 +420,7 @@ class Parser {
     if (this.check(tokenType)) {
       return this.advance();
     }
-    throw new SyntaxError(`Unexpected token ${this.previous().tokenType}, expected ${tokenType}`);
+    throw new SyntaxError(this.previous().line, `Unexpected token ${this.previous().tokenType}, expected ${tokenType}`);
   }
 
   /**
@@ -472,16 +470,6 @@ class Parser {
 
 class Expr {}
 
-class ListExpr extends Expr {
-  /**
-   * @param {Expr[]} children
-   */
-  constructor(children) {
-    super();
-    this.children = children;
-  }
-}
-
 class CallExpr extends Expr {
   /**
    * @param {Expr} callee
@@ -517,7 +505,7 @@ class LiteralExpr extends Expr {
 class LambdaExpr extends Expr {
   /**
    * @param {Token[]} params
-   * @param {ListExpr} body
+   * @param {Expr[]} body
    */
   constructor(params, body) {
     super();
@@ -593,8 +581,8 @@ class Interpreter {
   constructor() {
     // Setup the interpreter's environment with the built-in procedures
     this.env = new Environment();
-    this.env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b)));
-    this.env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b)));
+    this.env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b, 1)));
+    this.env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b, 0)));
     this.env.define('-', new BuiltIn((args) => args.reduce((a, b) => a - b)));
     this.env.define('/', new BuiltIn((args) => args.reduce((a, b) => a / b)));
     this.env.define('=', new BuiltIn((args) => args.reduce((a, b) => a === b)));
@@ -632,11 +620,11 @@ class Interpreter {
       for (const expr of expressions) {
         result = this.interpret(expr, this.env);
       }
-      return this.stringify(result);
+      return result;
     } catch (error) {
       if (error instanceof RuntimeError) {
         console.error(error.toString());
-        return this.stringify(NULL_VALUE);
+        return NULL_VALUE;
       }
       throw error;
     }
@@ -650,22 +638,26 @@ class Interpreter {
   interpret(expr, env) {
     while (true) {
       if (expr instanceof CallExpr) {
-        const params = expr.args.map((arg) => this.interpret(arg, env));
         const callee = this.interpret(expr.callee, env);
+        const params = expr.args.map((arg) => this.interpret(arg, env));
 
         // Eliminate the tail-call of running this procedure by "continuing the interpret loop"
         // with the procedure's body set as the current expression and the procedure's closure set
         // as the current environment
         if (callee instanceof Procedure) {
           const callEnv = new Environment(callee.declaration.params, params, callee.closure);
-          expr = callee.declaration.body;
+
+          for (const exprInBody of callee.declaration.body.slice(0, -1)) {
+            this.interpret(exprInBody, callEnv);
+          }
+          expr = callee.declaration.body[callee.declaration.body.length - 1];
           env = callEnv;
           continue;
         }
         if (callee instanceof BuiltIn) {
           return callee.call(this, params);
         }
-        throw new RuntimeError('Cannot call ' + this.stringify(callee));
+        throw new RuntimeError('Cannot call ' + stringify(callee));
       }
       if (expr instanceof LiteralExpr) {
         return expr.value;
@@ -690,14 +682,6 @@ class Interpreter {
         expr = expr.elseBranch;
         continue;
       }
-      if (expr instanceof ListExpr) {
-        // Can this be cleaner?
-        for (const inner of expr.children.slice(0, -1)) {
-          this.interpret(inner, env);
-        }
-        expr = expr.children[expr.children.length - 1];
-        continue;
-      }
       if (expr instanceof SetExpr) {
         return this.env.set(expr.name.lexeme, this.interpret(expr.value, env));
       }
@@ -710,33 +694,6 @@ class Interpreter {
       }
       throw new Error('Cannot interpret: ' + expr.constructor.name); // Should be un-reachable
     }
-  }
-
-  /**
-   * Converts the given value to a printable string
-   * @param {any} value
-   * @returns {string}
-   */
-  stringify(value) {
-    if (value === false) {
-      return '#f';
-    }
-    if (value === true) {
-      return '#t';
-    }
-    if (value === undefined) {
-      return '#f';
-    }
-    if (Array.isArray(value)) {
-      return '(' + value.join(' ') + ')';
-    }
-    if (value instanceof BuiltIn) {
-      return 'PrimitiveProcedure';
-    }
-    if (value instanceof Procedure) {
-      return 'Procedure';
-    }
-    return value.toString();
   }
 }
 
@@ -848,7 +805,11 @@ class Procedure {
    */
   call(interpreter, args) {
     const env = new Environment(this.declaration.params, args, this.closure);
-    return interpreter.interpret(this.declaration.body, env);
+    let result;
+    for (const expr of this.declaration.body) {
+      result = interpreter.interpret(expr, env);
+    }
+    return result;
   }
 }
 
@@ -869,12 +830,43 @@ let interpreter = new Interpreter();
 
 function run(source) {
   const scanner = new Scanner(source);
-  const tokens = scanner.scan();
+  const { tokens, hadError } = scanner.scan();
+  if (hadError) {
+    return;
+  }
 
   const parser = new Parser(tokens);
   const expressions = parser.parse();
 
-  return interpreter.interpretAll(expressions);
+  const result = interpreter.interpretAll(expressions);
+  return stringify(result);
+}
+
+/**
+ * Converts the given value to a printable string
+ * @param {any} value
+ * @returns {string}
+ */
+function stringify(value) {
+  if (value === false) {
+    return '#f';
+  }
+  if (value === true) {
+    return '#t';
+  }
+  if (value === undefined) {
+    return '#f';
+  }
+  if (Array.isArray(value)) {
+    return '(' + value.join(' ') + ')';
+  }
+  if (value instanceof BuiltIn) {
+    return 'PrimitiveProcedure';
+  }
+  if (value instanceof Procedure) {
+    return 'Procedure';
+  }
+  return value.toString();
 }
 
 // TESTS
@@ -997,6 +989,9 @@ run(`(define f (lambda (x y)
        (* a b))))
 `);
 assert.equal(run(`(f 3 4)`), '456');
+
+run(`
+(`); // Unexpected Eof
 
 console.log('tests successful...\n');
 
