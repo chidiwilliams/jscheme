@@ -217,6 +217,16 @@ const NULL_VALUE = [];
  * The Parser parses a list of tokens into an AST
  *
  * Parser grammar:
+ * program     => expression*
+ * expression  => lambda | define | if | set! | let
+ *               | "(" expression* ")" | () | atom
+ * lambda      => "(" "lambda" symbol-list expression* ")"
+ * define      => "(" "define" SYMBOL expression ")"
+ * if          => "(" "if" expression expression expression? ")"
+ * set!        => "(" "set" SYMBOL expression ")"
+ * let         => "(" "let" "(" let-binding* ")" expression* ")"
+ * let-binding => "(" SYMBOL expression ")"
+ * atom        => SYMBOL | NUMBER | TRUE | FALSE | STRING
  */
 class Parser {
   current = 0;
@@ -254,11 +264,11 @@ class Parser {
    */
   expression() {
     if (this.match(TokenType.LeftBracket)) {
-      const token = this.peek();
-      // if (!token) {
-      //   throw new SyntaxError(this.previous().line, 'Unexpected EOF');
-      // }
+      if (this.match(TokenType.RightBracket)) {
+        return new LiteralExpr(NULL_VALUE);
+      }
 
+      const token = this.peek();
       if (token.lexeme === 'lambda') {
         return this.lambda();
       }
@@ -273,10 +283,6 @@ class Parser {
       }
       if (token.lexeme === 'let') {
         return this.let();
-      }
-
-      if (this.match(TokenType.RightBracket)) {
-        return new LiteralExpr(NULL_VALUE);
       }
 
       const callee = this.expression();
@@ -336,14 +342,14 @@ class Parser {
    */
   if() {
     this.advance();
-    const cond = this.expression();
+    const condition = this.expression();
     const thenBranch = this.expression();
     let elseBranch;
     if (!this.match(TokenType.RightBracket)) {
       elseBranch = this.expression();
     }
     this.consume(TokenType.RightBracket);
-    return new IfExpr(cond, thenBranch, elseBranch);
+    return new IfExpr(condition, thenBranch, elseBranch);
   }
 
   /**
@@ -372,7 +378,14 @@ class Parser {
       bindings.push(this.letBinding());
     }
 
-    const body = this.expression();
+    /**
+     * @type {Expr[]}
+     */
+    const body = [];
+    while (!this.match(TokenType.RightBracket)) {
+      body.push(this.expression());
+    }
+
     return new LetExpr(bindings, body);
   }
 
@@ -555,7 +568,7 @@ class IfExpr extends Expr {
 class LetExpr {
   /**
    * @param {LetBindingNode[]} bindings
-   * @param {Expr} body
+   * @param {Expr[]} body
    */
   constructor(bindings, body) {
     this.bindings = bindings;
@@ -580,33 +593,34 @@ class LetBindingNode {
 class Interpreter {
   constructor() {
     // Setup the interpreter's environment with the built-in procedures
-    this.env = new Environment();
-    this.env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b, 1)));
-    this.env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b, 0)));
-    this.env.define('-', new BuiltIn((args) => args.reduce((a, b) => a - b)));
-    this.env.define('/', new BuiltIn((args) => args.reduce((a, b) => a / b)));
-    this.env.define('=', new BuiltIn((args) => args.reduce((a, b) => a === b)));
-    this.env.define('<=', new BuiltIn((args) => args.reduce((a, b) => a <= b)));
-    this.env.define('>=', new BuiltIn((args) => args.reduce((a, b) => a >= b)));
-    this.env.define('string-length', new BuiltIn(([str]) => str.length));
-    this.env.define('string-append', new BuiltIn((args) => args.reduce((a, b) => a + b)));
-    this.env.define('list', new BuiltIn((args) => args));
-    this.env.define('null?', new BuiltIn(([arg]) => arg === NULL_VALUE));
-    this.env.define('list?', new BuiltIn(([arg]) => arg instanceof Array));
-    this.env.define('number?', new BuiltIn(([arg]) => arg instanceof Number));
-    this.env.define('procedure?', new BuiltIn(([arg]) => arg instanceof Procedure || arg instanceof BuiltIn));
-    this.env.define('car', new BuiltIn(([arg]) => arg[0]));
-    this.env.define('cdr', new BuiltIn(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
-    this.env.define('cons', new BuiltIn(([a, b]) => [a, ...b]));
-    this.env.define('remainder', new BuiltIn(([a, b]) => a % b));
-    this.env.define('quote', new BuiltIn(([arg]) => arg));
-    this.env.define('begin', new BuiltIn((args) => args[args.length - 1]));
-    this.env.define('equal?', new BuiltIn(([a, b]) => a === b));
-    this.env.define('not', new BuiltIn(([arg]) => !arg));
-    this.env.define('round', new BuiltIn(([arg]) => Math.round(arg)));
-    this.env.define('abs', new BuiltIn(([arg]) => Math.abs(arg)));
-    this.env.define('display', new BuiltIn(([arg]) => console.log(arg)));
-    this.env.define('apply', new BuiltIn(([proc, args]) => proc.call(this, args)));
+    const env = new Environment();
+    env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b, 1)));
+    env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b, 0)));
+    env.define('-', new BuiltIn((args) => args.reduce((a, b) => a - b)));
+    env.define('/', new BuiltIn((args) => args.reduce((a, b) => a / b)));
+    env.define('=', new BuiltIn((args) => args.reduce((a, b) => a === b)));
+    env.define('<=', new BuiltIn((args) => args.reduce((a, b) => a <= b)));
+    env.define('>=', new BuiltIn((args) => args.reduce((a, b) => a >= b)));
+    env.define('string-length', new BuiltIn(([str]) => str.length));
+    env.define('string-append', new BuiltIn((args) => args.reduce((a, b) => a + b)));
+    env.define('list', new BuiltIn((args) => args));
+    env.define('null?', new BuiltIn(([arg]) => arg === NULL_VALUE));
+    env.define('list?', new BuiltIn(([arg]) => arg instanceof Array));
+    env.define('number?', new BuiltIn(([arg]) => arg instanceof Number));
+    env.define('procedure?', new BuiltIn(([arg]) => arg instanceof Procedure || arg instanceof BuiltIn));
+    env.define('car', new BuiltIn(([arg]) => arg[0]));
+    env.define('cdr', new BuiltIn(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
+    env.define('cons', new BuiltIn(([a, b]) => [a, ...b]));
+    env.define('remainder', new BuiltIn(([a, b]) => a % b));
+    env.define('quote', new BuiltIn(([arg]) => arg));
+    env.define('begin', new BuiltIn((args) => args[args.length - 1]));
+    env.define('equal?', new BuiltIn(([a, b]) => a === b));
+    env.define('not', new BuiltIn(([arg]) => !arg));
+    env.define('round', new BuiltIn(([arg]) => Math.round(arg)));
+    env.define('abs', new BuiltIn(([arg]) => Math.abs(arg)));
+    env.define('display', new BuiltIn(([arg]) => console.log(stringify(arg))));
+    env.define('apply', new BuiltIn(([proc, args]) => proc.call(this, args)));
+    this.env = env;
   }
 
   /**
@@ -639,13 +653,13 @@ class Interpreter {
     while (true) {
       if (expr instanceof CallExpr) {
         const callee = this.interpret(expr.callee, env);
-        const params = expr.args.map((arg) => this.interpret(arg, env));
+        const args = expr.args.map((arg) => this.interpret(arg, env));
 
         // Eliminate the tail-call of running this procedure by "continuing the interpret loop"
         // with the procedure's body set as the current expression and the procedure's closure set
         // as the current environment
         if (callee instanceof Procedure) {
-          const callEnv = new Environment(callee.declaration.params, params, callee.closure);
+          const callEnv = new Environment(callee.declaration.params, args, callee.closure);
 
           for (const exprInBody of callee.declaration.body.slice(0, -1)) {
             this.interpret(exprInBody, callEnv);
@@ -655,7 +669,7 @@ class Interpreter {
           continue;
         }
         if (callee instanceof BuiltIn) {
-          return callee.call(this, params);
+          return callee.call(this, args);
         }
         throw new RuntimeError('Cannot call ' + stringify(callee));
       }
@@ -669,13 +683,14 @@ class Interpreter {
         return new Procedure(expr, env);
       }
       if (expr instanceof DefineExpr) {
-        return env.define(expr.name.lexeme, this.interpret(expr.value, env));
+        env.define(expr.name.lexeme, this.interpret(expr.value, env));
+        return;
       }
       if (expr instanceof IfExpr) {
-        const cond = this.interpret(expr.condition, env);
+        const condition = this.interpret(expr.condition, env);
         // Eliminate the tail call of the if branches by "continuing the interpret loop"
         // with the branch set as the current expression
-        if (cond !== false) {
+        if (condition !== false) {
           expr = expr.thenBranch;
           continue;
         }
@@ -683,13 +698,20 @@ class Interpreter {
         continue;
       }
       if (expr instanceof SetExpr) {
-        return this.env.set(expr.name.lexeme, this.interpret(expr.value, env));
+        return env.set(expr.name.lexeme, this.interpret(expr.value, env));
       }
       if (expr instanceof LetExpr) {
-        const params = expr.bindings.map((binding) => binding.name);
-        const args = expr.bindings.map((binding) => this.interpret(binding.value, env));
-        env = new Environment(params, args, env);
-        expr = expr.body;
+        const names = expr.bindings.map((binding) => binding.name);
+        const values = expr.bindings.map((binding) => this.interpret(binding.value, env));
+
+        const letEnv = new Environment(names, values, env);
+
+        for (const exprInBody of expr.body.slice(0, -1)) {
+          this.interpret(exprInBody, letEnv);
+        }
+
+        expr = expr.body[expr.body.length - 1];
+        env = letEnv;
         continue;
       }
       throw new Error('Cannot interpret: ' + expr.constructor.name); // Should be un-reachable
@@ -703,17 +725,17 @@ class Interpreter {
 class Environment {
   /**
    *
-   * @param {Token[]=} params
-   * @param {any[]=} args
+   * @param {Token[]=} names
+   * @param {any[]=} values
    * @param {Environment=} enclosing
    */
-  constructor(params = [], args, enclosing) {
+  constructor(names = [], values, enclosing) {
     /**
      * @type {Map<string, any>}
      */
     this.values = new Map();
-    params.forEach((param, i) => {
-      this.values.set(param.lexeme, args[i]);
+    names.forEach((param, i) => {
+      this.values.set(param.lexeme, values[i]);
     });
 
     this.enclosing = enclosing;
@@ -848,25 +870,14 @@ function run(source) {
  * @returns {string}
  */
 function stringify(value) {
-  if (value === false) {
-    return '#f';
-  }
-  if (value === true) {
-    return '#t';
-  }
-  if (value === undefined) {
-    return '#f';
-  }
-  if (Array.isArray(value)) {
-    return '(' + value.join(' ') + ')';
-  }
-  if (value instanceof BuiltIn) {
-    return 'PrimitiveProcedure';
-  }
-  if (value instanceof Procedure) {
-    return 'Procedure';
-  }
-  return value.toString();
+  if (value === false) return '#f';
+  if (value === true) return '#t';
+  if (Array.isArray(value)) return '(' + value.map(stringify).join(' ') + ')';
+  if (value instanceof BuiltIn) return 'PrimitiveProcedure';
+  if (value instanceof Procedure) return 'Procedure';
+  if (typeof value === 'string') return `"${value}"`;
+  if (typeof value === 'number') return `${value}`;
+  return String(value);
 }
 
 // TESTS
@@ -922,9 +933,9 @@ run(`(define fibonacci
 assert.equal(run(`(fibonacci 20)`), '6765');
 
 assert.equal(run(`((lambda (x) (* x 2)) 7)`), 14);
-assert.equal(run(`(define str "hello world") str`), 'hello world');
+assert.equal(run(`(define str "hello world") str`), '"hello world"');
 assert.equal(run(`(string-length str)`), '11');
-assert.equal(run(`(string-append str " here")`), 'hello world here');
+assert.equal(run(`(string-append str " here")`), '"hello world here"');
 
 assert.equal(run(`(define one-through-four (list 1 2 3 4)) one-through-four`), '(1 2 3 4)');
 assert.equal(run(`(car one-through-four)`), '1');
@@ -955,7 +966,7 @@ run(`(define sum-to
         (sum-to (- n 1) (+ n acc)))))`);
 assert.equal(run(`(sum-to 10000 0)`), '50005000'); // TCE!
 
-assert.equal(run(`)(define a "scheme_read test")`), '#f');
+run(`)(define a "scheme_read test")`); // Unexpected token: RightBracket
 
 run(`(define range (lambda (a b) (if (= a b) (quote ()) (cons a (range (+ a 1) b)))))`);
 assert.equal(run(`(range 0 10)`), '(0 1 2 3 4 5 6 7 8 9)');
@@ -986,12 +997,23 @@ run(`(define f (lambda (x y)
         (b (- 1 y)))
     (+ (* x (square a))
        (* y b)
-       (* a b))))
+       (* a b)))))
 `);
 assert.equal(run(`(f 3 4)`), '456');
 
 run(`
 (`); // Unexpected Eof
+
+run(`(define gen (lambda ()
+(let ((n 0))
+  (lambda ()
+    (set! n (+ n 1))
+    n))))`);
+
+run(`(define next (gen))`);
+run(`(display (next))`);
+run(`(display (next))`);
+run(`(display (next))`);
 
 console.log('tests successful...\n');
 
