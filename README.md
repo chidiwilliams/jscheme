@@ -8,7 +8,7 @@ A Scheme interpreter and REPL written in JavaScript.
 program     => expression*
 expression  => lambda | define | if | set! | let
               | "(" expression* ")" | () | atom
-lambda      => "(" "lambda" symbol-list expression* ")"
+lambda      => "(" "lambda" "(" SYMBOL* ")" expression* ")"
 define      => "(" "define" SYMBOL expression ")"
 if          => "(" "if" expression expression expression? ")"
 set!        => "(" "set" SYMBOL expression ")"
