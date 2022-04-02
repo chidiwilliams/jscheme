@@ -220,7 +220,6 @@ const NULL_VALUE = [];
  * program     => expression*
  * expression  => lambda | define | if | set! | let
  *               | "(" expression* ")" | () | atom
- * lambda      => "(" "lambda" "(" SYMBOL* ")" expression* ")"
  * define      => "(" "define" SYMBOL expression ")"
  * if          => "(" "if" expression expression expression? ")"
  * set!        => "(" "set" SYMBOL expression ")"
@@ -592,34 +591,34 @@ class LetBindingNode {
  */
 class Interpreter {
   constructor() {
-    // Setup the interpreter's environment with the built-in procedures
+    // Setup the interpreter's environment with the primitive procedures
     const env = new Environment();
-    env.define('*', new BuiltIn((args) => args.reduce((a, b) => a * b, 1)));
-    env.define('+', new BuiltIn((args) => args.reduce((a, b) => a + b, 0)));
-    env.define('-', new BuiltIn((args) => args.reduce((a, b) => a - b)));
-    env.define('/', new BuiltIn((args) => args.reduce((a, b) => a / b)));
-    env.define('=', new BuiltIn((args) => args.reduce((a, b) => a === b)));
-    env.define('<=', new BuiltIn((args) => args.reduce((a, b) => a <= b)));
-    env.define('>=', new BuiltIn((args) => args.reduce((a, b) => a >= b)));
-    env.define('string-length', new BuiltIn(([str]) => str.length));
-    env.define('string-append', new BuiltIn((args) => args.reduce((a, b) => a + b)));
-    env.define('list', new BuiltIn((args) => args));
-    env.define('null?', new BuiltIn(([arg]) => arg === NULL_VALUE));
-    env.define('list?', new BuiltIn(([arg]) => arg instanceof Array));
-    env.define('number?', new BuiltIn(([arg]) => arg instanceof Number));
-    env.define('procedure?', new BuiltIn(([arg]) => arg instanceof Procedure || arg instanceof BuiltIn));
-    env.define('car', new BuiltIn(([arg]) => arg[0]));
-    env.define('cdr', new BuiltIn(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
-    env.define('cons', new BuiltIn(([a, b]) => [a, ...b]));
-    env.define('remainder', new BuiltIn(([a, b]) => a % b));
-    env.define('quote', new BuiltIn(([arg]) => arg));
-    env.define('begin', new BuiltIn((args) => args[args.length - 1]));
-    env.define('equal?', new BuiltIn(([a, b]) => a === b));
-    env.define('not', new BuiltIn(([arg]) => !arg));
-    env.define('round', new BuiltIn(([arg]) => Math.round(arg)));
-    env.define('abs', new BuiltIn(([arg]) => Math.abs(arg)));
-    env.define('display', new BuiltIn(([arg]) => console.log(stringify(arg))));
-    env.define('apply', new BuiltIn(([proc, args]) => proc.call(this, args)));
+    env.define('*', new PrimitiveProcedure((args) => args.reduce((a, b) => a * b, 1)));
+    env.define('+', new PrimitiveProcedure((args) => args.reduce((a, b) => a + b, 0)));
+    env.define('-', new PrimitiveProcedure((args) => args.reduce((a, b) => a - b)));
+    env.define('/', new PrimitiveProcedure((args) => args.reduce((a, b) => a / b)));
+    env.define('=', new PrimitiveProcedure((args) => args.reduce((a, b) => a === b)));
+    env.define('<=', new PrimitiveProcedure((args) => args.reduce((a, b) => a <= b)));
+    env.define('>=', new PrimitiveProcedure((args) => args.reduce((a, b) => a >= b)));
+    env.define('string-length', new PrimitiveProcedure(([str]) => str.length));
+    env.define('string-append', new PrimitiveProcedure((args) => args.reduce((a, b) => a + b)));
+    env.define('list', new PrimitiveProcedure((args) => args));
+    env.define('null?', new PrimitiveProcedure(([arg]) => arg === NULL_VALUE));
+    env.define('list?', new PrimitiveProcedure(([arg]) => arg instanceof Array));
+    env.define('number?', new PrimitiveProcedure(([arg]) => arg instanceof Number));
+    env.define('procedure?', new PrimitiveProcedure(([arg]) => arg instanceof Procedure || arg instanceof PrimitiveProcedure));
+    env.define('car', new PrimitiveProcedure(([arg]) => arg[0]));
+    env.define('cdr', new PrimitiveProcedure(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
+    env.define('cons', new PrimitiveProcedure(([a, b]) => [a, ...b]));
+    env.define('remainder', new PrimitiveProcedure(([a, b]) => a % b));
+    env.define('quote', new PrimitiveProcedure(([arg]) => arg));
+    env.define('begin', new PrimitiveProcedure((args) => args[args.length - 1]));
+    env.define('equal?', new PrimitiveProcedure(([a, b]) => a === b));
+    env.define('not', new PrimitiveProcedure(([arg]) => !arg));
+    env.define('round', new PrimitiveProcedure(([arg]) => Math.round(arg)));
+    env.define('abs', new PrimitiveProcedure(([arg]) => Math.abs(arg)));
+    env.define('display', new PrimitiveProcedure(([arg]) => console.log(stringify(arg))));
+    env.define('apply', new PrimitiveProcedure(([proc, args]) => proc.call(this, args)));
     this.env = env;
   }
 
@@ -668,7 +667,7 @@ class Interpreter {
           env = callEnv;
           continue;
         }
-        if (callee instanceof BuiltIn) {
+        if (callee instanceof PrimitiveProcedure) {
           return callee.call(this, args);
         }
         throw new RuntimeError('Cannot call ' + stringify(callee));
@@ -690,11 +689,7 @@ class Interpreter {
         const condition = this.interpret(expr.condition, env);
         // Eliminate the tail call of the if branches by "continuing the interpret loop"
         // with the branch set as the current expression
-        if (condition !== false) {
-          expr = expr.thenBranch;
-          continue;
-        }
-        expr = expr.elseBranch;
+        expr = condition !== false ? expr.thenBranch : expr.elseBranch;
         continue;
       }
       if (expr instanceof SetExpr) {
@@ -784,9 +779,9 @@ class Environment {
 }
 
 /**
- * A built-in procedure that can be called from the program.
+ * A primitive procedure that can be called from the program.
  */
-class BuiltIn {
+class PrimitiveProcedure {
   /**
    *
    * @param {Function} declaration
@@ -873,7 +868,7 @@ function stringify(value) {
   if (value === false) return '#f';
   if (value === true) return '#t';
   if (Array.isArray(value)) return '(' + value.map(stringify).join(' ') + ')';
-  if (value instanceof BuiltIn) return 'PrimitiveProcedure';
+  if (value instanceof PrimitiveProcedure) return 'PrimitiveProcedure';
   if (value instanceof Procedure) return 'Procedure';
   if (typeof value === 'string') return `"${value}"`;
   if (typeof value === 'number') return `${value}`;
