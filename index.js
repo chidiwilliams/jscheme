@@ -44,12 +44,12 @@ class Scanner {
           case '#':
             if (this.peek() === 't') {
               this.advance();
-              this.addToken(TokenType.True);
+              this.addToken(TokenType.Boolean, true);
               break;
             }
             if (this.peek() === 'f') {
               this.advance();
-              this.addToken(TokenType.False);
+              this.addToken(TokenType.Boolean, false);
               break;
             }
           case '"':
@@ -163,8 +163,7 @@ const TokenType = {
   RightBracket: 'RightBracket',
   Symbol: 'Symbol',
   Number: 'Number',
-  True: 'True',
-  False: 'False',
+  Boolean: 'Boolean',
   String: 'String',
   Eof: 'Eof',
 };
@@ -405,12 +404,8 @@ class Parser {
       case this.match(TokenType.Symbol):
         return new SymbolExpr(this.previous());
       case this.match(TokenType.Number):
-        return new LiteralExpr(this.previous().literal);
-      case this.match(TokenType.True):
-        return new LiteralExpr(true);
-      case this.match(TokenType.False):
-        return new LiteralExpr(false);
       case this.match(TokenType.String):
+      case this.match(TokenType.Boolean):
         return new LiteralExpr(this.previous().literal);
       default:
         throw new SyntaxError(this.peek().line, `Unexpected token: ${this.peek().tokenType}`);
@@ -606,7 +601,10 @@ class Interpreter {
     env.define('null?', new PrimitiveProcedure(([arg]) => arg === NULL_VALUE));
     env.define('list?', new PrimitiveProcedure(([arg]) => arg instanceof Array));
     env.define('number?', new PrimitiveProcedure(([arg]) => arg instanceof Number));
-    env.define('procedure?', new PrimitiveProcedure(([arg]) => arg instanceof Procedure || arg instanceof PrimitiveProcedure));
+    env.define(
+      'procedure?',
+      new PrimitiveProcedure(([arg]) => arg instanceof Procedure || arg instanceof PrimitiveProcedure)
+    );
     env.define('car', new PrimitiveProcedure(([arg]) => arg[0]));
     env.define('cdr', new PrimitiveProcedure(([arg]) => (arg.length > 1 ? arg.slice(1) : NULL_VALUE)));
     env.define('cons', new PrimitiveProcedure(([a, b]) => [a, ...b]));
