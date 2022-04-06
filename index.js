@@ -282,16 +282,22 @@ class Parser {
       if (token.lexeme === 'let') {
         return this.let();
       }
-
-      const callee = this.expression();
-
-      const args = [];
-      while (!this.match(TokenType.RightBracket)) {
-        args.push(this.expression());
-      }
-      return new CallExpr(callee, args);
+      return this.call();
     }
     return this.atom();
+  }
+
+  /**
+   * Parses a call expression
+   * @returns {Expr}
+   */
+  call() {
+    const callee = this.expression();
+    const args = [];
+    while (!this.match(TokenType.RightBracket)) {
+      args.push(this.expression());
+    }
+    return new CallExpr(callee, args);
   }
 
   /**
