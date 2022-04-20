@@ -60,6 +60,11 @@ class Scanner {
             this.addToken(TokenType.String, literal);
             this.advance();
             break;
+          case ';': // Comment - ignore all characters until the end of the line
+            while (this.peek() !== '\n' && !this.isAtEnd()) {
+              this.advance();
+            }
+            break;
           default:
             if (this.isDigit(char)) {
               while (this.isDigitOrDot(this.peek())) {
@@ -1013,6 +1018,8 @@ run(`(define next (gen))`);
 run(`(display (next))`);
 run(`(display (next))`);
 run(`(display (next))`);
+
+assert.equal(run(`(* 2 (* 8 4)) ; end of line comment`), 64);
 
 console.log('tests successful...\n');
 
