@@ -240,7 +240,7 @@ const NULL_VALUE = [];
  *
  * Parser grammar:
  * program     => expression*
- * expression  => lambda | define | if | set! | let
+ * expression  => lambda | define | if | set! | let | quote
  *               | "(" expression* ")" | () | atom
  * define      => "(" "define" SYMBOL expression ")"
  * if          => "(" "if" expression expression expression? ")"
@@ -435,6 +435,14 @@ class Parser {
   quote() {
     this.advance();
 
+    const value = this.quoteValue();
+    this.consume(TokenType.RightBracket);
+    return new QuoteExpr(value);
+  }
+
+  quoteValue() {
+    let quoted;
+
     if (this.match(TokenType.LeftBracket)) {
       const args = [];
 
@@ -443,10 +451,12 @@ class Parser {
         args.push(params);
       }
 
-      this.consume(TokenType.RightBracket);
-
-      return new QuoteExpr(new ListExpr(args));
+      quoted = new ListExpr(args);
+    } else {
+      quoted = this.expression();
     }
+
+    return quoted;
   }
 
   /**
@@ -461,6 +471,8 @@ class Parser {
       case this.match(TokenType.String):
       case this.match(TokenType.Boolean):
         return new LiteralExpr(this.previous().literal);
+      case this.match(TokenType.Quote):
+        return this.quoteValue();
       default:
         throw new SyntaxError(this.peek().line, `Unexpected token: ${this.peek().tokenType}`);
     }
@@ -1096,6 +1108,7 @@ run(`(display (next))`);
 assert.equal(run(`(* 2 (* 8 4)) ; end of line comment`), 64);
 
 assert.equal(run(`((lambda args (car (car args))) (quote (1 2 3 4 5)))`), '1');
+assert.equal(run(`((lambda args (car (car args))) '(1 2 3 4 5))`), '1');
 // run(`(define-macro and (lambda args
 //   (if (null? args) #t
 //       (if (= (length args) 1) (car args)
