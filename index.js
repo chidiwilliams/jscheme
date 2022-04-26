@@ -65,6 +65,20 @@ class Scanner {
               this.advance();
             }
             break;
+          case '`':
+            this.addToken(TokenType.Quasiquote);
+            break;
+          case "'":
+            this.addToken(TokenType.Quote);
+            break;
+          case ',':
+            if (this.peek() === '@') {
+              this.advance();
+              this.addToken(TokenType.UnquoteSplicing);
+            } else {
+              this.addToken(TokenType.Unquote);
+            }
+            break;
           default:
             if (this.isDigit(char)) {
               while (this.isDigitOrDot(this.peek())) {
@@ -170,6 +184,10 @@ const TokenType = {
   Number: 'Number',
   Boolean: 'Boolean',
   String: 'String',
+  Quasiquote: 'Quasiquote',
+  Quote: 'Quote',
+  Unquote: 'Unquote',
+  UnquoteSplicing: 'UnquoteSplicing',
   Eof: 'Eof',
 };
 
@@ -287,6 +305,9 @@ class Parser {
       if (token.lexeme === 'let') {
         return this.let();
       }
+      if (token.lexeme === 'quote') {
+        return this.quote();
+      }
       return this.call();
     }
     return this.atom();
@@ -313,13 +334,18 @@ class Parser {
     this.advance();
 
     /**
-     * @type {Token[]}
+     * @type {Token[] | Token}
      */
-    const params = [];
-    this.consume(TokenType.LeftBracket);
-    while (!this.match(TokenType.RightBracket)) {
-      const token = this.consume(TokenType.Symbol);
-      params.push(token);
+    let params;
+    if (this.match(TokenType.Symbol)) {
+      params = this.previous();
+    } else {
+      params = [];
+      this.consume(TokenType.LeftBracket);
+      while (!this.match(TokenType.RightBracket)) {
+        const token = this.consume(TokenType.Symbol);
+        params.push(token);
+      }
     }
 
     /**
@@ -404,6 +430,23 @@ class Parser {
     const value = this.expression();
     this.consume(TokenType.RightBracket);
     return new LetBindingNode(name, value);
+  }
+
+  quote() {
+    this.advance();
+
+    if (this.match(TokenType.LeftBracket)) {
+      const args = [];
+
+      while (!this.match(TokenType.RightBracket)) {
+        const params = this.expression();
+        args.push(params);
+      }
+
+      this.consume(TokenType.RightBracket);
+
+      return new QuoteExpr(new ListExpr(args));
+    }
   }
 
   /**
@@ -522,7 +565,7 @@ class LiteralExpr extends Expr {
 
 class LambdaExpr extends Expr {
   /**
-   * @param {Token[]} params
+   * @param {Token[] | Token} params
    * @param {Expr[]} body
    */
   constructor(params, body) {
@@ -589,6 +632,27 @@ class LetBindingNode {
   constructor(name, value) {
     this.name = name;
     this.value = value;
+  }
+}
+
+class QuoteExpr {
+  /**
+   *
+   * @param {Expr} value
+   */
+  constructor(value) {
+    this.value = value;
+  }
+}
+
+class ListExpr extends Expr {
+  /**
+   *
+   * @param {Expr[]} items
+   */
+  constructor(items) {
+    super();
+    this.items = items;
   }
 }
 
@@ -718,6 +782,12 @@ class Interpreter {
         env = letEnv;
         continue;
       }
+      if (expr instanceof QuoteExpr) {
+        return this.interpret(expr.value, env);
+      }
+      if (expr instanceof ListExpr) {
+        return expr.items.map((value) => this.interpret(value, env));
+      }
       throw new Error('Cannot interpret: ' + expr.constructor.name); // Should be un-reachable
     }
   }
@@ -729,7 +799,7 @@ class Interpreter {
 class Environment {
   /**
    *
-   * @param {Token[]=} names
+   * @param {Token | Token[]=} names
    * @param {any[]=} values
    * @param {Environment=} enclosing
    */
@@ -738,9 +808,13 @@ class Environment {
      * @type {Map<string, any>}
      */
     this.values = new Map();
-    names.forEach((param, i) => {
-      this.values.set(param.lexeme, values[i]);
-    });
+    if (Array.isArray(names)) {
+      names.forEach((param, i) => {
+        this.values.set(param.lexeme, values[i]);
+      });
+    } else {
+      this.values.set(names.lexeme, values);
+    }
 
     this.enclosing = enclosing;
   }
@@ -1020,6 +1094,12 @@ run(`(display (next))`);
 run(`(display (next))`);
 
 assert.equal(run(`(* 2 (* 8 4)) ; end of line comment`), 64);
+
+assert.equal(run(`((lambda args (car (car args))) (quote (1 2 3 4 5)))`), '1');
+// run(`(define-macro and (lambda args
+//   (if (null? args) #t
+//       (if (= (length args) 1) (car args)
+//           \`(if ,(car args) (and ,@(cdr args)) #f)))))`);
 
 console.log('tests successful...\n');
 
