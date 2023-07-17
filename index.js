@@ -80,14 +80,19 @@ class Scanner {
             }
             break;
           default:
-            if (this.isDigit(char)) {
+            if (this.isDigit(char) || (char ===  "-" && this.isDigit(this.peek()))) {
               while (this.isDigitOrDot(this.peek())) {
                 this.advance();
               }
-              const numberAsString = this.source.slice(this.start, this.current);
-              const literal = parseFloat(numberAsString);
-              this.addToken(TokenType.Number, literal);
-              break;
+              // if we encounter an indentifier at the end of a negative 
+              // number (e.g. -32f), fallback to treating it as a symbol.
+              // Note that -32f is a valid symbol, but 32f is not.
+              if (this.isDigit(char) || (!this.isIdentifier(this.peek()))) {
+                const numberAsString = this.source.slice(this.start, this.current);
+                const literal = parseFloat(numberAsString);
+                this.addToken(TokenType.Number, literal);
+                break;
+              }
             }
             if (this.isIdentifier(char)) {
               while (this.isIdentifier(this.peek())) {
@@ -976,9 +981,11 @@ function stringify(value) {
 const assert = require('assert');
 
 assert.equal(run(`10`), '10');
+assert.equal(run(`-10`), '-10');
 assert.equal(run(`(+ 137 349)`), '486');
 assert.equal(run(`(- 1000 334)`), '666');
 assert.equal(run(`(* 5 99)`), '495');
+assert.equal(run(`(* 5 -99)`), '-495');
 assert.equal(run(`(/ 10 5)`), '2');
 assert.equal(run(`(+ 2.7 10)`), '12.7');
 assert.equal(run(`(+ 21 35 12 7)`), '75');
@@ -1011,6 +1018,10 @@ run('(define and (lambda (x y) (if x y #f)))');
 run('(define x 3)');
 run('(define y 4)');
 assert.equal(run(`(and (if (= x 3) #t #f) (if (= y 4) #t #f))`), '#t');
+
+run('(define -3x -3)');
+assert.equal(run(`(square -3x)`), '9');
+
 
 run('(define or (lambda (x y) (if x x y)))');
 assert.equal(run(`(or #f #t)`), '#t');
